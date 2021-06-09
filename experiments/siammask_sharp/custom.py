@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from utils.load_helper import load_pretrain
 from resnet import resnet50
-
+import pdb
 
 class ResDownS(nn.Module):
     def __init__(self, inplane, outplane):
@@ -17,11 +17,13 @@ class ResDownS(nn.Module):
                 nn.BatchNorm2d(outplane))
 
     def forward(self, x):
+        # x.size() -- torch.Size([1, 1024, 15, 15])
         x = self.downsample(x)
         if x.size(3) < 20:
             l = 4
             r = -4
             x = x[:, :, l:r, l:r]
+        # x.size() -- torch.Size([1, 256, 7, 7])
         return x
 
 
@@ -40,27 +42,36 @@ class ResDown(MultiStageFeature):
 
         self.unfix(0.0)
 
-    def param_groups(self, start_lr, feature_mult=1):
-        lr = start_lr * feature_mult
+    # def param_groups(self, start_lr, feature_mult=1):
+    #     pdb.set_trace()
 
-        def _params(module, mult=1):
-            params = list(filter(lambda x:x.requires_grad, module.parameters()))
-            if len(params):
-                return [{'params': params, 'lr': lr * mult}]
-            else:
-                return []
+    #     lr = start_lr * feature_mult
 
-        groups = []
-        groups += _params(self.downsample)
-        groups += _params(self.features, 0.1)
-        return groups
+    #     def _params(module, mult=1):
+    #         params = list(filter(lambda x:x.requires_grad, module.parameters()))
+    #         if len(params):
+    #             return [{'params': params, 'lr': lr * mult}]
+    #         else:
+    #             return []
+
+    #     groups = []
+    #     groups += _params(self.downsample)
+    #     groups += _params(self.features, 0.1)
+    #     return groups
 
     def forward(self, x):
+        # x.size() -- torch.Size([1, 3, 127, 127])
         output = self.features(x)
+        # (Pdb) output[0].size(), output[1].size(), output[2].size(), output[3].size()
+        # (torch.Size([1, 64, 61, 61]), torch.Size([1, 256, 31, 31]), 
+        # torch.Size([1, 512, 15, 15]), torch.Size([1, 1024, 15, 15]))
         p3 = self.downsample(output[-1])
+        # (Pdb) p3.size() -- torch.Size([1, 256, 7, 7])
+
         return p3
 
     def forward_all(self, x):
+        # (Pdb) x.size() -- torch.Size([1, 3, 255, 255])
         output = self.features(x)
         p3 = self.downsample(output[-1])
         return output, p3
@@ -129,6 +140,7 @@ class Refine(nn.Module):
                     nn.init.kaiming_uniform_(l.weight, a=1)
 
     def forward(self, f, corr_feature, pos=None, test=False):
+        # test = True
         if test:
             p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
             p1 = torch.nn.functional.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
@@ -141,6 +153,7 @@ class Refine(nn.Module):
             p2 = F.unfold(f[2], (15, 15), padding=0, stride=1).permute(0, 2, 1).contiguous().view(-1, 512, 15, 15)
             if not (pos is None): p2 = torch.index_select(p2, 0, pos)
 
+        # pos = (12, 12)
         if not(pos is None):
             p3 = corr_feature[:, :, pos[0], pos[1]].view(-1, 256, 1, 1)
         else:
@@ -153,10 +166,11 @@ class Refine(nn.Module):
         out = out.view(-1, 127*127)
         return out
 
-    def param_groups(self, start_lr, feature_mult=1):
-        params = filter(lambda x:x.requires_grad, self.parameters())
-        params = [{'params': params, 'lr': start_lr * feature_mult}]
-        return params
+    # xxxx3333
+    # def param_groups(self, start_lr, feature_mult=1):
+    #     params = filter(lambda x:x.requires_grad, self.parameters())
+    #     params = [{'params': params, 'lr': start_lr * feature_mult}]
+    #     return params
 
 
 class Custom(SiamMask):
@@ -166,23 +180,33 @@ class Custom(SiamMask):
         self.rpn_model = UP(anchor_num=self.anchor_num, feature_in=256, feature_out=256)
         self.mask_model = MaskCorr()
         self.refine_model = Refine()
+        # pdb.set_trace()
+        # pretrain = False
 
-    def refine(self, f, pos=None):
-        return self.refine_model(f, pos)
+    # def refine(self, f, pos=None):
+    #     pdb.set_trace()
+
+    #     return self.refine_model(f, pos)
 
     def template(self, template):
+        # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
         self.zf = self.features(template)
 
-    def track(self, search):
-        search = self.features(search)
-        rpn_pred_cls, rpn_pred_loc = self.rpn(self.zf, search)
-        return rpn_pred_cls, rpn_pred_loc
+    # def track(self, search):
+    #     pdb.set_trace()
+
+    #     search = self.features(search)
+    #     rpn_pred_cls, rpn_pred_loc = self.rpn(self.zf, search)
+    #     return rpn_pred_cls, rpn_pred_loc
 
     def track_mask(self, search):
+        # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
         self.feature, self.search = self.features.forward_all(search)
+        # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
         rpn_pred_cls, rpn_pred_loc = self.rpn(self.zf, self.search)
         self.corr_feature = self.mask_model.mask.forward_corr(self.zf, self.search)
         pred_mask = self.mask_model.mask.head(self.corr_feature)
+
         return rpn_pred_cls, rpn_pred_loc, pred_mask
 
     def track_refine(self, pos):

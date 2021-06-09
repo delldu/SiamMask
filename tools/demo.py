@@ -5,6 +5,7 @@
 # --------------------------------------------------------
 import glob
 from tools.test import *
+import pdb
 
 parser = argparse.ArgumentParser(description='PyTorch Tracking Demo')
 
@@ -35,6 +36,9 @@ if __name__ == '__main__':
     img_files = sorted(glob.glob(join(args.base_path, '*.jp*')))
     ims = [cv2.imread(imf) for imf in img_files]
 
+    # pdb.set_trace()
+    # ims[0].shape -- (480, 854, 3) 
+
     # Select ROI
     cv2.namedWindow("SiamMask", cv2.WND_PROP_FULLSCREEN)
     # cv2.setWindowProperty("SiamMask", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
@@ -51,8 +55,13 @@ if __name__ == '__main__':
             target_pos = np.array([x + w / 2, y + h / 2])
             target_sz = np.array([w, h])
             state = siamese_init(im, target_pos, target_sz, siammask, cfg['hp'], device=device)  # init tracker
+            # (Pdb) state.keys()
+            # dict_keys(['im_h', 'im_w', 'p', 'net', 'avg_chans', 'window', 'target_pos', 'target_sz'])
+
         elif f > 0:  # tracking
             state = siamese_track(state, im, mask_enable=True, refine_enable=True, device=device)  # track
+            # (Pdb) pp state.keys() -- dict_keys(['im_h', 'im_w', 'p', 'net', 'avg_chans', 'window', 'target_pos', 'target_sz', 'score', 'mask', 'ploygon'])
+
             location = state['ploygon'].flatten()
             mask = state['mask'] > state['p'].seg_thr
 
