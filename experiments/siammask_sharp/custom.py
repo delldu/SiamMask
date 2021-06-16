@@ -173,9 +173,9 @@ class Refine(nn.Module):
     #     return params
 
 
-class TrackingMask(SiamMask):
+class SiameseTracker(SiamMask):
     def __init__(self, pretrain=False, **kwargs):
-        super(TrackingMask, self).__init__(**kwargs)
+        super(SiameseTracker, self).__init__(**kwargs)
         # pretrain = False
         # kwargs = {'anchors': {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0}}
         self.features = ResDown(pretrain=pretrain)
