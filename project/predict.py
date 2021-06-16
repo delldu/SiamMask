@@ -24,14 +24,21 @@ if __name__ == "__main__":
     """Predict."""
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--checkpoint', type=str, default="output/siammask.pth", help="checkpint file")
-    parser.add_argument('--input', type=str, required=True, help="input image")
+    parser.add_argument('--checkpoint', type=str, default="models/image_siammask.pth", help="checkpint file")
+    parser.add_argument('--input', type=str, default="tennis/*.png", help="input image")
+    parser.add_argument('-o', '--output', type=str, default="output", help="output folder")
+
     args = parser.parse_args()
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
 
     model = get_model(args.checkpoint)
     device = model_device()
     model = model.to(device)
     model.eval()
+
+    print(model)
+    pdb.set_trace()
 
     totensor = transforms.ToTensor()
     toimage = transforms.ToPILImage()
@@ -48,4 +55,4 @@ if __name__ == "__main__":
         with torch.no_grad():
             output_tensor = model(input_tensor).clamp(0, 1.0).squeeze()
 
-        toimage(output_tensor.cpu()).show()
+        toimage(output_tensor.cpu()).save("{}/{}".format(args.output, os.path.basename(filename)))

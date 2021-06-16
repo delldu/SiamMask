@@ -18,7 +18,7 @@ from utils.benchmark_helper import load_dataset
 from utils.average_meter_helper import IouMeter
 
 import models as models
-from tools.test import siamese_init, siamese_track
+from tools.test import TrackingStart, TrackingDoing
 from utils.config_helper import load_config
 
 thrs = np.arange(0.3, 0.81, 0.05)
@@ -100,12 +100,12 @@ def tune(param):
         tic = cv2.getTickCount()
         if f == start_frame:  # init
             target_pos = np.array([gt[f, 0]+gt[f, 2]/2, gt[f, 1]+gt[f, 3]/2])
-            target_sz = np.array([gt[f, 2], gt[f, 3]])
-            state = siamese_init(im, target_pos, target_sz, param['network'], param['hp'])  # init tracker
-            location = cxy_wh_2_rect(state['target_pos'], state['target_sz'])
+            target_size = np.array([gt[f, 2], gt[f, 3]])
+            state = TrackingStart(im, target_pos, target_size, param['network'], param['hp'])  # init tracker
+            location = cxy_wh_2_rect(state['target_pos'], state['target_size'])
             regions.append(gt[f])
         elif f > start_frame:  # tracking
-            state = siamese_track(state, im, args.mask, args.refine)  # track
+            state = TrackingDoing(state, im, args.mask, args.refine)  # track
             location = state['ploygon'].flatten()
             mask = state['mask']
 

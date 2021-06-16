@@ -24,10 +24,10 @@ if __name__ == '__main__':
 
     # Setup Model
     cfg = load_config(args)
-    from custom import TrackingMask
+    from custom import SiameseTracker
 
-    # siammask = TrackingMask(anchors=cfg['anchors'])
-    siammask = TrackingMask()
+    # siammask = SiameseTracker(anchors=cfg['anchors'])
+    siammask = SiameseTracker()
     if args.resume:
         assert isfile(args.resume), 'Please download {} first.'.format(args.resume)
         siammask = load_pretrain(siammask, args.resume)
@@ -50,33 +50,29 @@ if __name__ == '__main__':
     # except:
     #     exit()
     x, y, h, w = 300, 100, 280, 180
+    target_pos = np.array([x + w / 2, y + h / 2])
+    target_size = np.array([w, h])
+    state = TrackingStart(siammask, ims[0], target_pos, target_size, cfg['hp'], device=device)  # init tracker
 
     toc = 0
     for f, im in enumerate(ims):
         tic = cv2.getTickCount()
-        if f == 0:  # init
-            target_pos = np.array([x + w / 2, y + h / 2])
-            target_sz = np.array([w, h])
-            state = siamese_init(im, target_pos, target_sz, siammask, cfg['hp'], device=device)  # init tracker
-            # (Pdb) state.keys()
-            # dict_keys(['im_h', 'im_w', 'p', 'net', 'avg_chans', 'window', 'target_pos', 'target_sz'])
+        state = TrackingDoing(siammask, state, im, mask_enable=True, device=device)  # track
+        # (Pdb) pp state.keys() -- dict_keys(['image_height', 'image_width', 'p', 'net', 'avg_chans', 'window', 'target_pos', 'target_size', 'score', 'mask', 'ploygon'])
 
-        elif f > 0:  # tracking
-            state = siamese_track(state, im, mask_enable=True, refine_enable=True, device=device)  # track
-            # (Pdb) pp state.keys() -- dict_keys(['im_h', 'im_w', 'p', 'net', 'avg_chans', 'window', 'target_pos', 'target_sz', 'score', 'mask', 'ploygon'])
+        location = state['ploygon'].flatten()
+        mask = state['mask'] > state['p'].seg_thr
 
-            location = state['ploygon'].flatten()
-            mask = state['mask'] > state['p'].seg_thr
-
-            im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
-            cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
-
-            cv2.imshow('SiamMask', im)
-            key = cv2.waitKey(1)
-            if key > 0:
-                break
-
+        # BGR format !!!
+        im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
+        cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
+        
+        cv2.imshow('SiamMask', im)
+        key = cv2.waitKey(1)
+        if key > 0:
+            break
         toc += cv2.getTickCount() - tic
     toc /= cv2.getTickFrequency()
     fps = f / toc
     print('SiamMask Time: {:02.1f}s Speed: {:3.1f}fps (with visulization!)'.format(toc, fps))
+    pdb.set_trace()

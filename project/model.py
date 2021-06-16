@@ -18,20 +18,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-
-class siammaskModel(nn.Module):
-    """siammask Model."""
-
-    def __init__(self):
-        """Init model."""
-
-        super(siammaskModel, self).__init__()
-
-    def forward(self, x):
-        """Forward."""
-
-        return x
-
+from model_helper import SiameseTracker
 
 def model_load(model, path):
     """Load model."""
@@ -42,6 +29,7 @@ def model_load(model, path):
 
     state_dict = torch.load(path, map_location=lambda storage, loc: storage)
     target_state_dict = model.state_dict()
+
     for n, p in state_dict.items():
         if n in target_state_dict.keys():
             target_state_dict[n].copy_(p)
@@ -59,7 +47,7 @@ def get_model(checkpoint):
     """Create model."""
 
     model_setenv()
-    model = siammaskModel()
+    model = SiameseTracker()
     model_load(model, checkpoint)
     device = model_device()
     model.to(device)

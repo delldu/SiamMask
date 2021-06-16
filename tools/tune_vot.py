@@ -16,7 +16,7 @@ from utils.bbox_helper import get_axis_aligned_bbox, cxy_wh_2_rect
 from utils.load_helper import load_pretrain
 from utils.benchmark_helper import load_dataset
 
-from tools.test import siamese_init, siamese_track
+from tools.test import TrackingStart, TrackingDoing
 from utils.config_helper import load_config
 from utils.pyvotkit.region import vot_overlap, vot_float2str
 
@@ -96,19 +96,19 @@ def tune(param):
         if f == start_frame:  # init
             cx, cy, w, h = get_axis_aligned_bbox(gt[f])
             target_pos = np.array([cx, cy])
-            target_sz = np.array([w, h])
-            state = siamese_init(im, target_pos, target_sz, param['network'], param['hp'], device=device)  # init tracker
-            location = cxy_wh_2_rect(state['target_pos'], state['target_sz'])
+            target_size = np.array([w, h])
+            state = TrackingStart(im, target_pos, target_size, param['network'], param['hp'], device=device)  # init tracker
+            location = cxy_wh_2_rect(state['target_pos'], state['target_size'])
             if param['dataset'].startswith('VOT'):
                 regions.append(1)
             elif param['dataset'].startswith('OTB') or param['dataset'].startswith('DAVIS'):
                 regions.append(gt[f])
         elif f > start_frame:  # tracking
-            state = siamese_track(state, im, args.mask, args.refine, device=device)
+            state = TrackingDoing(state, im, args.mask, args.refine, device=device)
             if args.mask:
                 location = state['ploygon'].flatten()
             else:
-                location = cxy_wh_2_rect(state['target_pos'], state['target_sz'])
+                location = cxy_wh_2_rect(state['target_pos'], state['target_size'])
             if param['dataset'].startswith('VOT'):
                 if 'VOT' in args.dataset:
                     gt_polygon = ((gt[f][0], gt[f][1]), 
