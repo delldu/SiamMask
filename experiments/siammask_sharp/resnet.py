@@ -1,12 +1,15 @@
 import torch.nn as nn
 import torch
-from torch.autograd import Variable
 import math
-import torch.utils.model_zoo as model_zoo
-from models.features import Features
+# import torch.utils.model_zoo as model_zoo
+# from models.features import Features
 
-__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
-           'resnet152']
+import pdb
+
+# __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
+#            'resnet152']
+
+__all__ = ['ResNet', 'resnet50']
 
 
 model_urls = {
@@ -18,45 +21,45 @@ model_urls = {
 }
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    "3x3 convolution with padding"
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=False)
+# def conv3x3(in_planes, out_planes, stride=1):
+#     "3x3 convolution with padding"
+#     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+#                      padding=1, bias=False)
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
+# class BasicBlock(nn.Module):
+#     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
+#     def __init__(self, inplanes, planes, stride=1, downsample=None):
+#         super(BasicBlock, self).__init__()
+#         self.conv1 = conv3x3(inplanes, planes, stride)
+#         self.bn1 = nn.BatchNorm2d(planes)
+#         self.relu = nn.ReLU(inplace=True)
+#         self.conv2 = conv3x3(planes, planes)
+#         self.bn2 = nn.BatchNorm2d(planes)
+#         self.downsample = downsample
+#         self.stride = stride
 
-    def forward(self, x):
-        residual = x
+#     def forward(self, x):
+#         residual = x
 
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
+#         out = self.conv1(x)
+#         out = self.bn1(out)
+#         out = self.relu(out)
 
-        out = self.conv2(out)
-        out = self.bn2(out)
+#         out = self.conv2(out)
+#         out = self.bn2(out)
 
-        if self.downsample is not None:
-            residual = self.downsample(x)
+#         if self.downsample is not None:
+#             residual = self.downsample(x)
 
-        out += residual
-        out = self.relu(out)
+#         out += residual
+#         out = self.relu(out)
 
-        return out
+#         return out
 
 
-class Bottleneck(Features):
+class Bottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
@@ -104,46 +107,46 @@ class Bottleneck(Features):
 
 
 
-class Bottleneck_nop(nn.Module):
-    expansion = 4
+# class Bottleneck_nop(nn.Module):
+#     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck_nop, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-                               padding=0, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
+#     def __init__(self, inplanes, planes, stride=1, downsample=None):
+#         super(Bottleneck_nop, self).__init__()
+#         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+#         self.bn1 = nn.BatchNorm2d(planes)
+#         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+#                                padding=0, bias=False)
+#         self.bn2 = nn.BatchNorm2d(planes)
+#         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+#         self.bn3 = nn.BatchNorm2d(planes * 4)
+#         self.relu = nn.ReLU(inplace=True)
+#         self.downsample = downsample
+#         self.stride = stride
 
-    def forward(self, x):
-        residual = x
+#     def forward(self, x):
+#         residual = x
 
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
+#         out = self.conv1(x)
+#         out = self.bn1(out)
+#         out = self.relu(out)
 
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
+#         out = self.conv2(out)
+#         out = self.bn2(out)
+#         out = self.relu(out)
 
-        out = self.conv3(out)
-        out = self.bn3(out)
+#         out = self.conv3(out)
+#         out = self.bn3(out)
 
-        if self.downsample is not None:
-            residual = self.downsample(x)
+#         if self.downsample is not None:
+#             residual = self.downsample(x)
 
-        s = residual.size(3)
-        residual = residual[:, :, 1:s-1, 1:s-1]
+#         s = residual.size(3)
+#         residual = residual[:, :, 1:s-1, 1:s-1]
 
-        out += residual
-        out = self.relu(out)
+#         out += residual
+#         out = self.relu(out)
 
-        return out
+#         return out
 
 
 class ResNet(nn.Module):
@@ -227,77 +230,77 @@ class ResNet(nn.Module):
         return p0, p1, p2, p3
 
 
-class ResAdjust(nn.Module):
-    def __init__(self,
-            block=Bottleneck,
-            out_channels=256,
-            adjust_number=1,
-            fuse_layers=[2,3,4]):
-        super(ResAdjust, self).__init__()
-        self.fuse_layers = set(fuse_layers)
+# class ResAdjust(nn.Module):
+#     def __init__(self,
+#             block=Bottleneck,
+#             out_channels=256,
+#             adjust_number=1,
+#             fuse_layers=[2,3,4]):
+#         super(ResAdjust, self).__init__()
+#         self.fuse_layers = set(fuse_layers)
 
-        if 2 in self.fuse_layers:
-            self.layer2 = self._make_layer(block, 128, 1, out_channels, adjust_number)
-        if 3 in self.fuse_layers:
-            self.layer3 = self._make_layer(block, 256, 2, out_channels, adjust_number)
-        if 4 in self.fuse_layers:
-            self.layer4 = self._make_layer(block, 512, 4, out_channels, adjust_number)
+#         if 2 in self.fuse_layers:
+#             self.layer2 = self._make_layer(block, 128, 1, out_channels, adjust_number)
+#         if 3 in self.fuse_layers:
+#             self.layer3 = self._make_layer(block, 256, 2, out_channels, adjust_number)
+#         if 4 in self.fuse_layers:
+#             self.layer4 = self._make_layer(block, 512, 4, out_channels, adjust_number)
 
-        self.feature_size = out_channels * len(self.fuse_layers)
-
-
-    def _make_layer(self, block, plances, dilation, out, number=1):
-
-        layers = []
-
-        for _ in range(number):
-            layer = block(plances * block.expansion, plances, dilation=dilation)
-            layers.append(layer)
-
-        downsample = nn.Sequential(
-                nn.Conv2d(plances * block.expansion, out, kernel_size=3, padding=1, bias=False),
-                nn.BatchNorm2d(out)
-                )
-        layers.append(downsample)
-
-        return nn.Sequential(*layers)
-
-    def forward(self, p2, p3, p4):
-
-        outputs = []
-
-        if 2 in self.fuse_layers:
-            outputs.append(self.layer2(p2))
-        if 3 in self.fuse_layers:
-            outputs.append(self.layer3(p3))
-        if 4 in self.fuse_layers:
-            outputs.append(self.layer4(p4))
-        # return torch.cat(outputs, 1)
-        return outputs
+#         self.feature_size = out_channels * len(self.fuse_layers)
 
 
-def resnet18(pretrained=False, **kwargs):
-    """Constructs a ResNet-18 model.
+#     def _make_layer(self, block, plances, dilation, out, number=1):
 
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
-    return model
+#         layers = []
+
+#         for _ in range(number):
+#             layer = block(plances * block.expansion, plances, dilation=dilation)
+#             layers.append(layer)
+
+#         downsample = nn.Sequential(
+#                 nn.Conv2d(plances * block.expansion, out, kernel_size=3, padding=1, bias=False),
+#                 nn.BatchNorm2d(out)
+#                 )
+#         layers.append(downsample)
+
+#         return nn.Sequential(*layers)
+
+#     def forward(self, p2, p3, p4):
+
+#         outputs = []
+
+#         if 2 in self.fuse_layers:
+#             outputs.append(self.layer2(p2))
+#         if 3 in self.fuse_layers:
+#             outputs.append(self.layer3(p3))
+#         if 4 in self.fuse_layers:
+#             outputs.append(self.layer4(p4))
+#         # return torch.cat(outputs, 1)
+#         return outputs
 
 
-def resnet34(pretrained=False, **kwargs):
-    """Constructs a ResNet-34 model.
+# def resnet18(pretrained=False, **kwargs):
+#     """Constructs a ResNet-18 model.
 
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet34']))
-    return model
+#     Args:
+#         pretrained (bool): If True, returns a model pre-trained on ImageNet
+#     """
+#     model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+#     if pretrained:
+#         model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+#     return model
+
+
+# def resnet34(pretrained=False, **kwargs):
+#     """Constructs a ResNet-34 model.
+
+#     Args:
+#         pretrained (bool): If True, returns a model pre-trained on ImageNet
+#     """
+#     model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+#     if pretrained:
+#         model.load_state_dict(model_zoo.load_url(model_urls['resnet34']))
+#     return model
 
 
 def resnet50(pretrained=False, **kwargs):
@@ -307,33 +310,34 @@ def resnet50(pretrained=False, **kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
+
+    # if pretrained:
+    #     model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
     return model
 
 
-def resnet101(pretrained=False, **kwargs):
-    """Constructs a ResNet-101 model.
+# def resnet101(pretrained=False, **kwargs):
+#     """Constructs a ResNet-101 model.
 
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
-    return model
+#     Args:
+#         pretrained (bool): If True, returns a model pre-trained on ImageNet
+#     """
+#     model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+#     if pretrained:
+#         model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
+#     return model
 
 
-def resnet152(pretrained=False, **kwargs):
-    """Constructs a ResNet-152 model.
+# def resnet152(pretrained=False, **kwargs):
+#     """Constructs a ResNet-152 model.
 
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
-    return model
+#     Args:
+#         pretrained (bool): If True, returns a model pre-trained on ImageNet
+#     """
+#     model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+#     if pretrained:
+#         model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
+#     return model
 
 if __name__ == '__main__':
     net = resnet50()
@@ -341,12 +345,10 @@ if __name__ == '__main__':
     net = net.cuda()
 
     var = torch.FloatTensor(1,3,127,127).cuda()
-    var = Variable(var)
 
     net(var)
     print('*************')
     var = torch.FloatTensor(1,3,255,255).cuda()
-    var = Variable(var)
 
     net(var)
 
