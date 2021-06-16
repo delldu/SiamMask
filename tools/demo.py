@@ -24,8 +24,10 @@ if __name__ == '__main__':
 
     # Setup Model
     cfg = load_config(args)
-    from custom import Custom
-    siammask = Custom(anchors=cfg['anchors'])
+    from custom import TrackingMask
+
+    # siammask = TrackingMask(anchors=cfg['anchors'])
+    siammask = TrackingMask()
     if args.resume:
         assert isfile(args.resume), 'Please download {} first.'.format(args.resume)
         siammask = load_pretrain(siammask, args.resume)
@@ -42,11 +44,12 @@ if __name__ == '__main__':
     # Select ROI
     cv2.namedWindow("SiamMask", cv2.WND_PROP_FULLSCREEN)
     # cv2.setWindowProperty("SiamMask", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    try:
-        init_rect = cv2.selectROI('SiamMask', ims[0], False, False)
-        x, y, w, h = init_rect
-    except:
-        exit()
+    # try:
+    #     init_rect = cv2.selectROI('SiamMask', ims[0], False, False)
+    #     x, y, w, h = init_rect
+    # except:
+    #     exit()
+    x, y, h, w = 300, 100, 280, 180
 
     toc = 0
     for f, im in enumerate(ims):
@@ -67,6 +70,7 @@ if __name__ == '__main__':
 
             im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
             cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
+
             cv2.imshow('SiamMask', im)
             key = cv2.waitKey(1)
             if key > 0:

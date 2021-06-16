@@ -13,6 +13,7 @@ from utils.anchors import Anchors
 class SiamMask(nn.Module):
     def __init__(self, anchors=None, o_sz=127, g_sz=127):
         super(SiamMask, self).__init__()
+        anchors = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0}
         self.anchors = anchors  # anchor_cfg
         self.anchor_num = len(self.anchors["ratios"]) * len(self.anchors["scales"])
         self.anchor = Anchors(anchors)
@@ -25,13 +26,13 @@ class SiamMask(nn.Module):
 
         self.all_anchors = None
 
-    def set_all_anchors(self, image_center, size):
-        # cx,cy,w,h
-        if not self.anchor.generate_all_anchors(image_center, size):
-            return
-        all_anchors = self.anchor.all_anchors[1]  # cx, cy, w, h
-        self.all_anchors = torch.from_numpy(all_anchors).float().cuda()
-        self.all_anchors = [self.all_anchors[i] for i in range(4)]
+    # def set_all_anchors(self, image_center, size):
+    #     # cx,cy,w,h
+    #     if not self.anchor.generate_all_anchors(image_center, size):
+    #         return
+    #     all_anchors = self.anchor.all_anchors[1]  # cx, cy, w, h
+    #     self.all_anchors = torch.from_numpy(all_anchors).float().cuda()
+    #     self.all_anchors = [self.all_anchors[i] for i in range(4)]
 
     def feature_extractor(self, x):
         return self.features(x)

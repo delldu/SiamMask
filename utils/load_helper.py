@@ -1,5 +1,7 @@
 import torch
 import logging
+import pdb
+
 logger = logging.getLogger('global')
 
 
@@ -35,6 +37,7 @@ def load_pretrain(model, pretrained_path):
         device = torch.cuda.current_device()
         pretrained_dict = torch.load(pretrained_path, map_location=lambda storage, loc: storage.cuda(device))
 
+    # "state_dict" in pretrained_dict.keys() -- True
     if "state_dict" in pretrained_dict.keys():
         pretrained_dict = remove_prefix(pretrained_dict['state_dict'], 'module.')
     else:
@@ -51,6 +54,9 @@ def load_pretrain(model, pretrained_path):
         pretrained_dict = new_dict
         check_keys(model, pretrained_dict)
     model.load_state_dict(pretrained_dict, strict=False)
+
+    torch.save(model.state_dict(), "/tmp/image_siammask.pth")
+
     return model
 
 

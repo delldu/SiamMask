@@ -36,11 +36,11 @@ class ResDown(MultiStageFeature):
 
         self.downsample = ResDownS(1024, 256)
 
-        self.layers = [self.downsample, self.features.layer2, self.features.layer3]
-        self.train_nums = [1, 3]
-        self.change_point = [0, 0.5]
+        # self.layers = [self.downsample, self.features.layer2, self.features.layer3]
+        # self.train_nums = [1, 3]
+        # self.change_point = [0, 0.5]
 
-        self.unfix(0.0)
+        # self.unfix(0.0)
 
     # def param_groups(self, start_lr, feature_mult=1):
     #     pdb.set_trace()
@@ -173,14 +173,15 @@ class Refine(nn.Module):
     #     return params
 
 
-class Custom(SiamMask):
+class TrackingMask(SiamMask):
     def __init__(self, pretrain=False, **kwargs):
-        super(Custom, self).__init__(**kwargs)
+        super(TrackingMask, self).__init__(**kwargs)
+        # pretrain = False
+        # kwargs = {'anchors': {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0}}
         self.features = ResDown(pretrain=pretrain)
         self.rpn_model = UP(anchor_num=self.anchor_num, feature_in=256, feature_out=256)
         self.mask_model = MaskCorr()
         self.refine_model = Refine()
-        # pdb.set_trace()
         # pretrain = False
 
     # def refine(self, f, pos=None):

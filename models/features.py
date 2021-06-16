@@ -5,6 +5,7 @@
 # --------------------------------------------------------
 import torch.nn as nn
 import logging
+import pdb
 
 logger = logging.getLogger('global')
 
@@ -43,10 +44,16 @@ class MultiStageFeature(Features):
         self.train_nums = []
 
     def unfix(self, ratio=0.0):
+        # pdb.set_trace()
+        # ratio = 0.0
+        # self.train_num == -1
         if self.train_num == -1:
             self.train_num = 0
             self.unlock()
             self.eval()
+
+        # (Pdb) self.change_point -- [0, 0.5]
+        # (Pdb) self.train_nums -- [1, 3]
         for p, t in reversed(list(zip(self.change_point, self.train_nums))):
             if ratio >= p:
                 if self.train_num != t:
@@ -54,6 +61,8 @@ class MultiStageFeature(Features):
                     self.unlock()
                     return True
                 break
+        # pdb.set_trace()
+
         return False
 
     def train_layers(self):
