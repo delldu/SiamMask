@@ -1,7 +1,8 @@
 from models.siammask_sharp import SiamMask
-from models.features import MultiStageFeature
-from models.rpn import RPN, DepthCorr
-from models.mask import Mask
+# from models.features import MultiStageFeature
+# from models.rpn import RPN, DepthCorr
+from models.rpn import DepthCorr
+# from models.mask import Mask
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,7 +28,7 @@ class ResDownS(nn.Module):
         return x
 
 
-class ResDown(MultiStageFeature):
+class ResDown(nn.Module):
     def __init__(self, pretrain=False):
         super(ResDown, self).__init__()
         self.features = resnet50(layer3=True, layer4=False)
@@ -77,7 +78,7 @@ class ResDown(MultiStageFeature):
         return output, p3
 
 
-class UP(RPN):
+class UP(nn.Module):
     def __init__(self, anchor_num=5, feature_in=256, feature_out=256):
         super(UP, self).__init__()
 
@@ -97,7 +98,7 @@ class UP(RPN):
         return cls, loc
 
 
-class MaskCorr(Mask):
+class MaskCorr(nn.Module):
     def __init__(self, oSz=63):
         super(MaskCorr, self).__init__()
         self.oSz = oSz
@@ -140,6 +141,12 @@ class Refine(nn.Module):
                     nn.init.kaiming_uniform_(l.weight, a=1)
 
     def forward(self, f, corr_feature, pos):
+        # (Pdb) type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
+        # (<class 'tuple'>, 4, torch.Size([1, 64, 125, 125]), torch.Size([1, 256, 63, 63]), torch.Size([1, 512, 31, 31]), torch.Size([1, 1024, 31, 31]))
+        # corr_feature.size() -- torch.Size([1, 256, 25, 25])
+        # (Pdb) type(pos), len(pos), type(pos[0]), type(pos[1])
+        # (<class 'tuple'>, 2, <class 'numpy.int64'>, <class 'numpy.int64'>)
+
         # test = True
         # if test:
         #     p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
