@@ -37,29 +37,6 @@ class ResDown(nn.Module):
 
         self.downsample = ResDownS(1024, 256)
 
-        # self.layers = [self.downsample, self.features.layer2, self.features.layer3]
-        # self.train_nums = [1, 3]
-        # self.change_point = [0, 0.5]
-
-        # self.unfix(0.0)
-
-    # def param_groups(self, start_lr, feature_mult=1):
-    #     pdb.set_trace()
-
-    #     lr = start_lr * feature_mult
-
-    #     def _params(module, mult=1):
-    #         params = list(filter(lambda x:x.requires_grad, module.parameters()))
-    #         if len(params):
-    #             return [{'params': params, 'lr': lr * mult}]
-    #         else:
-    #             return []
-
-    #     groups = []
-    #     groups += _params(self.downsample)
-    #     groups += _params(self.features, 0.1)
-    #     return groups
-
     def forward(self, x):
         # x.size() -- torch.Size([1, 3, 127, 127])
         output = self.features(x)
@@ -176,12 +153,6 @@ class Refine(nn.Module):
         out = out.view(-1, 127*127)
         return out
 
-    # xxxx3333
-    # def param_groups(self, start_lr, feature_mult=1):
-    #     params = filter(lambda x:x.requires_grad, self.parameters())
-    #     params = [{'params': params, 'lr': start_lr * feature_mult}]
-    #     return params
-
 
 class SiameseTracker(SiamMask):
     def __init__(self, pretrain=False, **kwargs):
@@ -194,21 +165,9 @@ class SiameseTracker(SiamMask):
         self.refine_model = Refine()
         # pretrain = False
 
-    # def refine(self, f, pos=None):
-    #     pdb.set_trace()
-
-    #     return self.refine_model(f, pos)
-
     def template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
         self.zf = self.features(template)
-
-    # def track(self, search):
-    #     pdb.set_trace()
-
-    #     search = self.features(search)
-    #     rpn_pred_cls, rpn_pred_loc = self.rpn(self.zf, search)
-    #     return rpn_pred_cls, rpn_pred_loc
 
     def track_mask(self, search):
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])

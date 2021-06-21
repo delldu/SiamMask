@@ -28,6 +28,8 @@ if __name__ == '__main__':
 
     # siammask = SiameseTracker(anchors=cfg['anchors'])
     siammask = SiameseTracker()
+    # torch.jit.script(siammask)
+
     if args.resume:
         assert isfile(args.resume), 'Please download {} first.'.format(args.resume)
         siammask = load_pretrain(siammask, args.resume)

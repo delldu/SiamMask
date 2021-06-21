@@ -255,10 +255,32 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
 
 def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     p = state['p']
+    # (Pdb) print(state['p'])
+    # <utils.tracker_config.TrackerConfig object at 0x7f4b95a0bd30>
+    # (Pdb) print(state['p'].__dict__)
+    # {'instance_size': 255, 'base_size': 8, 'out_size': 127, 'seg_thr': 0.35, 'penalty_k': 0.04, 'window_influence': 0.4, 'lr': 1.0, 'total_stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0, 'score_size': 25, 'anchor_num': 5, 'anchor': array([[-96., -96., 104.,  32.],
+    #        [-88., -96., 104.,  32.],
+    #        [-80., -96., 104.,  32.],
+    #        ...,
+    #        [ 80.,  96.,  32.,  96.],
+    #        [ 88.,  96.,  32.,  96.],
+    #        [ 96.,  96.,  32.,  96.]], dtype=float32)}
+
     avg_chans = state['avg_chans']
+    # type(state['avg_chans']) -- <class 'numpy.ndarray'>
+    # (Pdb) state['avg_chans'].shape -- (3,)
+
     window = state['window']
+    # (Pdb) state['window'] -- array([0., 0., 0., ..., 0., 0., 0.])
+    # (Pdb) state['window'].shape -- (3125,)
+
     target_pos = state['target_pos']
+    # (Pdb) state['target_pos'] -- array([390., 240.])
+    # (Pdb) state['target_pos'].shape -- (2,)
+
     target_size = state['target_size']
+    # (Pdb) state['target_size'] -- array([180, 280])
+    # (Pdb) state['target_size'].shape -- (2,)
 
     # mask_enable = True
     wc_x = target_size[1] + p.context_amount * sum(target_size)
@@ -334,6 +356,7 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     target_size = np.array([res_w, res_h])
 
     # for Mask Branch
+    # pp mask_enable -- True
     if mask_enable:
         best_pscore_id_mask = np.unravel_index(best_pscore_id, (5, p.score_size, p.score_size))
         delta_x, delta_y = best_pscore_id_mask[2], best_pscore_id_mask[1]
@@ -372,6 +395,7 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
 
         # pp p.seg_thr -- 0.35
         target_mask = (mask_in_img > p.seg_thr).astype(np.uint8)
+        # cv2.__version__ -- '4.4.0' ==> cv2.__version__[-5] == '4'
         if cv2.__version__[-5] == '4':
             contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         else:
@@ -391,6 +415,7 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
                                     [location[0] + location[2], location[1] + location[3]],
                                     [location[0], location[1] + location[3]]])
 
+    # type(state['image_width']) -- <class 'int'>
     target_pos[0] = max(0, min(state['image_width'], target_pos[0]))
     target_pos[1] = max(0, min(state['image_height'], target_pos[1]))
     target_size[0] = max(10, min(state['image_width'], target_size[0]))
