@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from utils.anchors import Anchors
-
+from typing import Dict
 
 class SiamMask(nn.Module):
     def __init__(self, anchors=None, o_sz=127, g_sz=127):
@@ -59,6 +59,8 @@ class SiamMask(nn.Module):
         """
         run network
         """
+        pdb.set_trace()
+
         template_feature = self.feature_extractor(template)
         feature, search_feature = self.features.forward_all(search)
         rpn_pred_cls, rpn_pred_loc = self.rpn(template_feature, search_feature)
@@ -76,7 +78,7 @@ class SiamMask(nn.Module):
         cls = F.log_softmax(cls, dim=4)
         return cls
 
-    def forward(self, input):
+    def forward(self, input: Dict[str, torch.Tensor])->Dict[str, torch.Tensor]:
         """
         :param input: dict of input with keys of:
                 'template': [b, 3, h1, w1], input template image.

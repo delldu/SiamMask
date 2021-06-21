@@ -34,6 +34,9 @@ if __name__ == '__main__':
 
     siammask.eval().to(device)
 
+    # torch.jit.script(siammask)
+    # pdb.set_trace()
+
     # Parse Image file
     img_files = sorted(glob.glob(join(args.base_path, '*.jp*')))
     ims = [cv2.imread(imf) for imf in img_files]
@@ -75,4 +78,3 @@ if __name__ == '__main__':
     toc /= cv2.getTickFrequency()
     fps = f / toc
     print('SiamMask Time: {:02.1f}s Speed: {:3.1f}fps (with visulization!)'.format(toc, fps))
-    pdb.set_trace()

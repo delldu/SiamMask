@@ -139,19 +139,22 @@ class Refine(nn.Module):
                 if isinstance(l, nn.Conv2d):
                     nn.init.kaiming_uniform_(l.weight, a=1)
 
-    def forward(self, f, corr_feature, pos=None, test=False):
+    def forward(self, f, corr_feature, pos):
         # test = True
-        if test:
-            p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
-            p1 = torch.nn.functional.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
-            p2 = torch.nn.functional.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
-        else:
-            p0 = F.unfold(f[0], (61, 61), padding=0, stride=4).permute(0, 2, 1).contiguous().view(-1, 64, 61, 61)
-            if not (pos is None): p0 = torch.index_select(p0, 0, pos)
-            p1 = F.unfold(f[1], (31, 31), padding=0, stride=2).permute(0, 2, 1).contiguous().view(-1, 256, 31, 31)
-            if not (pos is None): p1 = torch.index_select(p1, 0, pos)
-            p2 = F.unfold(f[2], (15, 15), padding=0, stride=1).permute(0, 2, 1).contiguous().view(-1, 512, 15, 15)
-            if not (pos is None): p2 = torch.index_select(p2, 0, pos)
+        # if test:
+        #     p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
+        #     p1 = torch.nn.functional.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
+        #     p2 = torch.nn.functional.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
+        # else:
+        #     p0 = F.unfold(f[0], (61, 61), padding=0, stride=4).permute(0, 2, 1).contiguous().view(-1, 64, 61, 61)
+        #     if not (pos is None): p0 = torch.index_select(p0, 0, pos)
+        #     p1 = F.unfold(f[1], (31, 31), padding=0, stride=2).permute(0, 2, 1).contiguous().view(-1, 256, 31, 31)
+        #     if not (pos is None): p1 = torch.index_select(p1, 0, pos)
+        #     p2 = F.unfold(f[2], (15, 15), padding=0, stride=1).permute(0, 2, 1).contiguous().view(-1, 512, 15, 15)
+        #     if not (pos is None): p2 = torch.index_select(p2, 0, pos)
+        p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
+        p1 = torch.nn.functional.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
+        p2 = torch.nn.functional.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
 
         # pos = (12, 12)
         if not(pos is None):
@@ -211,6 +214,6 @@ class SiameseTracker(SiamMask):
         return rpn_pred_cls, rpn_pred_loc, pred_mask
 
     def track_refine(self, pos):
-        pred_mask = self.refine_model(self.feature, self.corr_feature, pos=pos, test=True)
+        pred_mask = self.refine_model(self.feature, self.corr_feature, pos=pos)
         return pred_mask
 
