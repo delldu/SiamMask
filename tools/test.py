@@ -5,16 +5,16 @@
 # --------------------------------------------------------
 from __future__ import division
 import argparse
-import logging
+# import logging
 import numpy as np
 import cv2
 from PIL import Image
-from os import makedirs
+# from os import makedirs
 from os.path import join, isdir, isfile
 
-from utils.log_helper import init_log, add_file_handler
+# from utils.log_helper import init_log, add_file_handler
 from utils.load_helper import load_pretrain
-from utils.bbox_helper import get_axis_aligned_bbox, cxy_wh_2_rect
+from utils.bbox_helper import cxy_wh_2_rect
 from utils.benchmark_helper import load_dataset, dataset_zoo
 
 import math
@@ -22,15 +22,13 @@ import torch
 # from torch.autograd import Variable
 import torch.nn.functional as F
 
-from utils.anchors import Anchors
+# from utils.anchors import Anchors
 # from utils.tracker_config import TrackerConfig
 
 from utils.config_helper import load_config
 
 import pdb
 
-
-thrs = np.arange(0.3, 0.5, 0.05)
 
 parser = argparse.ArgumentParser(description='Test SiamMask')
 parser.add_argument('--arch', dest='arch', default='', choices=['Custom',],
@@ -130,8 +128,6 @@ def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans):
     return im_to_torch(im_patch)
 
 
-
-
 def get_scale_size(h, w):
     # hc = h + (h + w)/2
     # wc = w + (h + w)/2
@@ -140,16 +136,7 @@ def get_scale_size(h, w):
     return math.sqrt((3 * h + w) * (3 * w + h))/2
 
 
-
-def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
-    # hp = {'instance_size': 255, 
-    #     'base_size': 8, 
-    #     'out_size': 127, 
-    #     'segment_threshold': 0.35, 
-    #     'penalty_k': 0.04, 
-    #     'window_influence': 0.4,
-    #     'lr': 1.0}
-
+def TrackingStart(model, im, target_pos, target_size, device='cpu'):
     # (Pdb) type(im), im.min(), im.max(), im.shape
     # (<class 'numpy.ndarray'>, 0, 255, (480, 854, 3))
 
@@ -157,20 +144,11 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
     state['image_height'] = im.shape[0]
     state['image_width'] = im.shape[1]
 
-
     avg_chans = np.mean(im, axis=(0, 1))
     # pdb.set_trace()
 
-    # # pp p.context_amount -- 0.5
-    # wc_z = target_size[0] + p.context_amount * sum(target_size)
-    # hc_z = target_size[1] + p.context_amount * sum(target_size)
-    # # (Pdb) target_size -- array([180, 280])
-    # # (Pdb) wc_z, hc_z -- (410.0, 510.0)
-    # s_z = round(np.sqrt(wc_z * hc_z))
-
     s_z = round(get_scale_size(target_size[0], target_size[1]))
 
-    # pp s_z -- 457
  
     # initialize the exemplar
 
@@ -195,7 +173,6 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
     # (Pdb) avg_chans
     # array([ 96.94782641, 114.56385148, 141.78324551])
 
-    # state['p'] = p
     state['avg_chans'] = avg_chans
     state['window'] = window
     state['target_pos'] = target_pos
@@ -221,9 +198,6 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     # (Pdb) state['target_size'].shape -- (2,)
 
     # mask_enable = True
-    # wc_x = target_size[1] + p.context_amount * sum(target_size)
-    # hc_x = target_size[0] + p.context_amount * sum(target_size)
-    # s_x = np.sqrt(wc_x * hc_x)
     s_x = get_scale_size(target_size[0], target_size[1])
 
     scale_x = model.template_size / s_x

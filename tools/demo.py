@@ -23,15 +23,13 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
 
     # Setup Model
-    cfg = load_config(args)
     from models.siammask_sharp import SiameseTracker
 
-    # siammask = SiameseTracker(anchors=cfg['anchors'])
     siammask = SiameseTracker()
     # torch.jit.script(siammask)
 
     if args.resume:
-        assert isfile(args.resume), 'Please download {} first.'.format(args.resume)
+        # assert isfile(args.resume), 'Please download {} first.'.format(args.resume)
         siammask = load_pretrain(siammask, args.resume)
 
     siammask.eval().to(device)
@@ -56,7 +54,7 @@ if __name__ == '__main__':
     x, y, h, w = 300, 100, 280, 180
     target_pos = np.array([x + w / 2, y + h / 2])
     target_size = np.array([w, h])
-    state = TrackingStart(siammask, ims[0], target_pos, target_size, cfg['hp'], device=device)  # init tracker
+    state = TrackingStart(siammask, ims[0], target_pos, target_size, device=device)  # init tracker
 
     toc = 0
     for f, im in enumerate(ims):

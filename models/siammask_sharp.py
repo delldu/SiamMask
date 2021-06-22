@@ -309,9 +309,9 @@ class Refine(nn.Module):
         #     if not (pos is None): p1 = torch.index_select(p1, 0, pos)
         #     p2 = F.unfold(f[2], (15, 15), padding=0, stride=1).permute(0, 2, 1).contiguous().view(-1, 512, 15, 15)
         #     if not (pos is None): p2 = torch.index_select(p2, 0, pos)
-        p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
-        p1 = torch.nn.functional.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
-        p2 = torch.nn.functional.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
+        p0 = F.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
+        p1 = F.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
+        p2 = F.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
 
         # pos = (12, 12)
         if not(pos is None):
@@ -320,9 +320,9 @@ class Refine(nn.Module):
             p3 = corr_feature.permute(0, 2, 3, 1).contiguous().view(-1, 256, 1, 1)
 
         out = self.deconv(p3)
-        out = self.post0(F.upsample(self.h2(out) + self.v2(p2), size=(31, 31)))
-        out = self.post1(F.upsample(self.h1(out) + self.v1(p1), size=(61, 61)))
-        out = self.post2(F.upsample(self.h0(out) + self.v0(p0), size=(127, 127)))
+        out = self.post0(F.interpolate(self.h2(out) + self.v2(p2), size=(31, 31)))
+        out = self.post1(F.interpolate(self.h1(out) + self.v1(p1), size=(61, 61)))
+        out = self.post2(F.interpolate(self.h0(out) + self.v0(p0), size=(127, 127)))
         out = out.view(-1, 127*127)
         return out
 
@@ -384,7 +384,7 @@ class SiameseTracker(nn.Module):
     def __init__(self):
         super(SiameseTracker, self).__init__()
         self.anchors = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'base_size': 8}
-        
+
         self.anchor_num = len(self.anchors["ratios"]) * len(self.anchors["scales"])
         self.score_size = 25
         self.anchor = generate_anchor(self.anchors, self.score_size)
