@@ -79,16 +79,13 @@ def get_subwindow_tracking(im, target_pos, target_size, search_size, avg_chans):
     big = np.zeros((height + top_pad + bottom_pad, width + left_pad + right_pad, chan), np.uint8)
     big[top_pad:top_pad + height, left_pad:left_pad + width, :] = im
     # big[0:top_pad, left_pad:left_pad + width, :] = avg_chans
-    # big[height + top_pad:, left_pad:left_pad + width, :] = avg_chans
+    big[height + top_pad:, left_pad:left_pad + width, :] = avg_chans
     # big[:, 0:left_pad, :] = avg_chans
-    # big[:, width + left_pad:, :] = avg_chans
+    big[:, width + left_pad:, :] = avg_chans
 
-    patch = cv2.resize(big[y1:y2 + 1, x1:x2 + 1, :], (target_size, target_size))
+    patch = im_to_torch(big[y1:y2 + 1, x1:x2 + 1, :])
 
-    # # x = im_to_torch(patch)
-    # # x.size() -- torch.Size([3, 127, 127]),  (Pdb) type(x) -- <class 'torch.Tensor'>, rang: [0.0, 255.0]
-
-    return im_to_torch(patch)
+    return F.interpolate(patch.unsqueeze(0), size=(target_size, target_size), mode='nearest')
 
 
 def get_scale_size(h, w):
@@ -120,12 +117,10 @@ def TrackingStart(model, im, target_pos, target_size, device='cpu'):
     # def get_subwindow_tracking(im, pos, target_size, search_size, avg_chans):
     z_crop = get_subwindow_tracking(im, target_pos, model.template_size, s_z, avg_chans)
 
-    # pdb.set_trace()
 
-    z = z_crop.unsqueeze(0)
-    # (Pdb) pp z.shape -- torch.Size([1, 3, 127, 127]), format range: [0, 255]
+    # (Pdb) pp z_crop.shape -- torch.Size([1, 3, 127, 127]), format range: [0, 255]
 
-    model.set_template(z.to(device))
+    model.set_template(z_crop.to(device))
 
     # (Pdb) avg_chans
     # array([ 96.94782641, 114.56385148, 141.78324551])
@@ -165,7 +160,7 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     # (Pdb) crop_box -- [-69.0, -219.0, 918, 918]
 
     # def get_subwindow_tracking(im, pos, target_size, search_size, avg_chans):
-    x_crop = get_subwindow_tracking(im, target_pos, model.instance_size, round(s_x), avg_chans).unsqueeze(0)
+    x_crop = get_subwindow_tracking(im, target_pos, model.instance_size, round(s_x), avg_chans)
     # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
 
     score, delta, mask = model.track_mask(x_crop.to(device))
