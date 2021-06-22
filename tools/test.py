@@ -62,6 +62,7 @@ def to_torch(ndarray):
 
 
 def im_to_torch(img):
+    # H, W, C --> C, H, W, Range: 0-255
     img = np.transpose(img, (2, 0, 1))  # C*H*W
     img = to_torch(img).float()
     return img
@@ -119,7 +120,7 @@ def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans):
         im_patch = cv2.resize(im_patch_original, (model_sz, model_sz))
     else:
         im_patch = im_patch_original
-        
+
     # (Pdb) out_mode -- 'torch'
     # (Pdb) im_patch.shape -- (127, 127, 3),  (Pdb) type(im_patch) -- <class 'numpy.ndarray'>
 
@@ -209,9 +210,9 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
     p = TrackerConfig()
     p.update(hp, model.anchors)
     p.renew()
-    p.scales = model.anchors['scales']
-    p.ratios = model.anchors['ratios']
-    p.anchor_num = model.anchor_num
+    # p.scales = model.anchors['scales']
+    # p.ratios = model.anchors['ratios']
+    # p.anchor_num = model.anchor_num
     p.anchor = generate_anchor(model.anchors, p.score_size)
 
     # (Pdb) print(p.__dict__)

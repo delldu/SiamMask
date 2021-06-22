@@ -38,12 +38,15 @@ class Anchors:
 
         for x_offset, y_offset in zip(x_offsets.flatten(), y_offsets.flatten()):
             for r in self.ratios:
-                if self.round_dight > 0:
-                    ws = round(math.sqrt(size*1. / r), self.round_dight)
-                    hs = round(ws * r, self.round_dight)
-                else:
-                    ws = int(math.sqrt(size*1. / r))
-                    hs = int(ws * r)
+                # if self.round_dight > 0:
+                #     ws = round(math.sqrt(size*1. / r), self.round_dight)
+                #     hs = round(ws * r, self.round_dight)
+                # else:
+                #     ws = int(math.sqrt(size*1. / r))
+                #     hs = int(ws * r)
+
+                ws = int(math.sqrt(size*1. / r))
+                hs = int(ws * r)
 
                 for s in self.scales:
                     w = ws * s
@@ -53,7 +56,7 @@ class Anchors:
 
     def generate_all_anchors(self, im_c, size):
         pdb.set_trace()
-        
+
         if self.image_center == im_c and self.size == size:
             return False
         self.image_center = im_c

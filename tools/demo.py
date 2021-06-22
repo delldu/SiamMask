@@ -24,7 +24,7 @@ if __name__ == '__main__':
 
     # Setup Model
     cfg = load_config(args)
-    from custom import SiameseTracker
+    from models.siammask_sharp import SiameseTracker
 
     # siammask = SiameseTracker(anchors=cfg['anchors'])
     siammask = SiameseTracker()
@@ -43,8 +43,7 @@ if __name__ == '__main__':
     img_files = sorted(glob.glob(join(args.base_path, '*.jp*')))
     ims = [cv2.imread(imf) for imf in img_files]
 
-    # pdb.set_trace()
-    # ims[0].shape -- (480, 854, 3) 
+    # ims[0].shape -- (480, 854, 3), 'numpy.ndarray', Range: 0-255, uint8, BGR format ?
 
     # Select ROI
     cv2.namedWindow("SiamMask", cv2.WND_PROP_FULLSCREEN)

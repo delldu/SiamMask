@@ -394,38 +394,6 @@ class Anchors:
                     self.anchors[count][:] = [-w*0.5+x_offset, -h*0.5+y_offset, w*0.5+x_offset, h*0.5+y_offset][:]
                     count += 1
 
-    def generate_all_anchors(self, im_c, size):
-        if self.image_center == im_c and self.size == size:
-            return False
-        self.image_center = im_c
-        self.size = size
-
-        a0x = im_c - size // 2 * self.stride
-        ori = np.array([a0x] * 4, dtype=np.float32)
-        zero_anchors = self.anchors + ori
-
-        x1 = zero_anchors[:, 0]
-        y1 = zero_anchors[:, 1]
-        x2 = zero_anchors[:, 2]
-        y2 = zero_anchors[:, 3]
-
-        x1, y1, x2, y2 = map(lambda x: x.reshape(self.anchor_num, 1, 1), [x1, y1, x2, y2])
-        cx, cy, w, h = corner2center([x1, y1, x2, y2])
-
-        disp_x = np.arange(0, size).reshape(1, 1, -1) * self.stride
-        disp_y = np.arange(0, size).reshape(1, -1, 1) * self.stride
-
-        cx = cx + disp_x
-        cy = cy + disp_y
-
-        # broadcast
-        zero = np.zeros((self.anchor_num, size, size), dtype=np.float32)
-        cx, cy, w, h = map(lambda x: x + zero, [cx, cy, w, h])
-        x1, y1, x2, y2 = center2corner([cx, cy, w, h])
-
-        self.all_anchors = np.stack([x1, y1, x2, y2]), np.stack([cx, cy, w, h])
-        return True
-
 
 class SiamMask(nn.Module):
     def __init__(self, anchors=None, o_sz=127, g_sz=127):
@@ -442,14 +410,6 @@ class SiamMask(nn.Module):
         self.upSample = nn.UpsamplingBilinear2d(size=[g_sz, g_sz])
 
         self.all_anchors = None
-
-    # def set_all_anchors(self, image_center, size):
-    #     # cx,cy,w,h
-    #     if not self.anchor.generate_all_anchors(image_center, size):
-    #         return
-    #     all_anchors = self.anchor.all_anchors[1]  # cx, cy, w, h
-    #     self.all_anchors = torch.from_numpy(all_anchors).float().cuda()
-    #     self.all_anchors = [self.all_anchors[i] for i in range(4)]
 
     def feature_extractor(self, x):
         return self.features(x)
