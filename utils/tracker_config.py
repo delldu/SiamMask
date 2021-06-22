@@ -5,7 +5,7 @@
 # --------------------------------------------------------
 from __future__ import division
 from utils.anchors import Anchors
-
+import pdb
 
 class TrackerConfig(object):
     # These are the default hyper-params for SiamMask
@@ -27,7 +27,8 @@ class TrackerConfig(object):
     anchor_num = len(ratios) * len(scales)
     round_dight = 0
     anchor = []
-
+    # pdb.set_trace()
+    
     def update(self, newparam=None, anchors=None):
         if newparam:
             for key, value in newparam.items():

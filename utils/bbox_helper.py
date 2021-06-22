@@ -5,6 +5,7 @@
 # --------------------------------------------------------
 import numpy as np
 from collections import namedtuple
+import pdb
 
 Corner = namedtuple('Corner', 'x1 y1 x2 y2')
 BBox = Corner
@@ -33,6 +34,7 @@ def center2corner(center):
     :param center: Center or np.array 4*N
     :return: Corner or np.array 4*N
     """
+    pdb.set_trace()
     if isinstance(center, Center):
         x, y, w, h = center
         return Corner(x - w * 0.5, y - h * 0.5, x + w * 0.5, y + h * 0.5)
@@ -46,10 +48,14 @@ def center2corner(center):
 
 
 def cxy_wh_2_rect(pos, sz):
+    pdb.set_trace()
+
     return np.array([pos[0]-sz[0]/2, pos[1]-sz[1]/2, sz[0], sz[1]])  # 0-index
 
 
 def get_axis_aligned_bbox(region):
+    pdb.set_trace()
+
     nv = region.size
     if nv == 8:
         cx = np.mean(region[0::2])
@@ -86,6 +92,8 @@ def aug_apply(bbox, param, shape, inv=False, rd=False):
         bbox: augmented bbox
         param: real augmentation param
     """
+    pdb.set_trace()
+
     if not inv:
         center = corner2center(bbox)
         original_center = center
@@ -144,6 +152,8 @@ def aug_apply(bbox, param, shape, inv=False, rd=False):
 
 def IoU(rect1, rect2):
     # overlap
+    pdb.set_trace()
+    
     x1, y1, x2, y2 = rect1[0], rect1[1], rect1[2], rect1[3]
     tx1, ty1, tx2, ty2 = rect2[0], rect2[1], rect2[2], rect2[3]
 

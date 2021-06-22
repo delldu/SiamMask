@@ -6,7 +6,7 @@
 import numpy as np
 import math
 from utils.bbox_helper import center2corner, corner2center
-
+import pdb
 
 class Anchors:
     def __init__(self, cfg):
@@ -24,6 +24,7 @@ class Anchors:
         self.anchors = None  # in single position (anchor_num*4)
         self.all_anchors = None  # in all position 2*(4*anchor_num*h*w)
         self.generate_anchors()
+        # pdb.set_trace()
 
     def generate_anchors(self):
         self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32)
@@ -51,6 +52,8 @@ class Anchors:
                     count += 1
 
     def generate_all_anchors(self, im_c, size):
+        pdb.set_trace()
+        
         if self.image_center == im_c and self.size == size:
             return False
         self.image_center = im_c
