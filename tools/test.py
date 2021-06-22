@@ -68,54 +68,27 @@ def get_range_pad(y, d, maxy):
 
     return y1, y2, pad1, pad2
 
-def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans):
-    # type(im) -- <class 'numpy.ndarray'>, im.shape -- (480, 854, 3)
-
-    # avg_chans = np.mean(im, axis=(0, 1))
-    height, width, chan = im.shape
-
+def get_subwindow_tracking(im, target_pos, target_size, search_size, avg_chans):
     # (Pdb) type(im) -- <class 'numpy.ndarray'>, (Pdb) im.shape -- (480, 854, 3), range: [0, 255], uint8
 
-    x1, x2, left_pad, right_pad = get_range_pad(pos[0], original_sz, width)
-    y1, y2, top_pad, bottom_pad = get_range_pad(pos[1], original_sz, height)
+    height, width, chan = im.shape
 
-    if any([top_pad, bottom_pad, left_pad, right_pad]):
-        # print("CheckPoint 1 ...")
-        te_im = np.zeros((height + top_pad + bottom_pad, width + left_pad + right_pad, chan), np.uint8)
-        te_im[top_pad:top_pad + height, left_pad:left_pad + width, :] = im
-        # if top_pad:
-        #     te_im[0:top_pad, left_pad:left_pad + width, :] = avg_chans
-        # if bottom_pad:
-        #     te_im[height + top_pad:, left_pad:left_pad + width, :] = avg_chans
-        # if left_pad:
-        #     te_im[:, 0:left_pad, :] = avg_chans
-        # if right_pad:
-        #     te_im[:, width + left_pad:, :] = avg_chans
+    x1, x2, left_pad, right_pad = get_range_pad(target_pos[0], search_size, width)
+    y1, y2, top_pad, bottom_pad = get_range_pad(target_pos[1], search_size, height)
 
-        te_im[0:top_pad, left_pad:left_pad + width, :] = avg_chans
-        te_im[height + top_pad:, left_pad:left_pad + width, :] = avg_chans
-        te_im[:, 0:left_pad, :] = avg_chans
-        te_im[:, width + left_pad:, :] = avg_chans
+    big = np.zeros((height + top_pad + bottom_pad, width + left_pad + right_pad, chan), np.uint8)
+    big[top_pad:top_pad + height, left_pad:left_pad + width, :] = im
+    # big[0:top_pad, left_pad:left_pad + width, :] = avg_chans
+    # big[height + top_pad:, left_pad:left_pad + width, :] = avg_chans
+    # big[:, 0:left_pad, :] = avg_chans
+    # big[:, width + left_pad:, :] = avg_chans
 
-        im_patch_original = te_im[y1:y2 + 1, x1:x2 + 1, :]
-    else:
-        # print("CheckPoint 2 ...")
-        im_patch_original = im[y1:y2 + 1, x1:x2 + 1, :]
+    patch = cv2.resize(big[y1:y2 + 1, x1:x2 + 1, :], (target_size, target_size))
 
-    # np.array_equal(model_sz, original_sz) -- False
-    # if not np.array_equal(model_sz, original_sz):
-    #     im_patch = cv2.resize(im_patch_original, (model_sz, model_sz))
-    # else:
-    #     im_patch = im_patch_original
-    im_patch = cv2.resize(im_patch_original, (model_sz, model_sz))
+    # # x = im_to_torch(patch)
+    # # x.size() -- torch.Size([3, 127, 127]),  (Pdb) type(x) -- <class 'torch.Tensor'>, rang: [0.0, 255.0]
 
-    # (Pdb) out_mode -- 'torch'
-    # (Pdb) im_patch.shape -- (127, 127, 3),  (Pdb) type(im_patch) -- <class 'numpy.ndarray'>
-
-    # x = im_to_torch(im_patch)
-    # x.size() -- torch.Size([3, 127, 127]),  (Pdb) type(x) -- <class 'torch.Tensor'>, rang: [0.0, 255.0]
-
-    return im_to_torch(im_patch)
+    return im_to_torch(patch)
 
 
 def get_scale_size(h, w):
@@ -144,7 +117,7 @@ def TrackingStart(model, im, target_pos, target_size, device='cpu'):
  
     # initialize the exemplar
 
-    # def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans):
+    # def get_subwindow_tracking(im, pos, target_size, search_size, avg_chans):
     z_crop = get_subwindow_tracking(im, target_pos, model.template_size, s_z, avg_chans)
 
     # pdb.set_trace()
@@ -191,7 +164,7 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     crop_box = [target_pos[0] - round(s_x) / 2, target_pos[1] - round(s_x) / 2, round(s_x), round(s_x)]
     # (Pdb) crop_box -- [-69.0, -219.0, 918, 918]
 
-    # def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans):
+    # def get_subwindow_tracking(im, pos, target_size, search_size, avg_chans):
     x_crop = get_subwindow_tracking(im, target_pos, model.instance_size, round(s_x), avg_chans).unsqueeze(0)
     # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
 
