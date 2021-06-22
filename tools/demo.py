@@ -65,7 +65,7 @@ if __name__ == '__main__':
         # (Pdb) pp state.keys() -- dict_keys(['image_height', 'image_width', 'p', 'net', 'avg_chans', 'window', 'target_pos', 'target_size', 'score', 'mask', 'ploygon'])
 
         location = state['ploygon'].flatten()
-        mask = state['mask'] > siammask.seg_thr
+        mask = state['mask'] > siammask.segment_threshold
 
         # BGR format !!!
         im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]

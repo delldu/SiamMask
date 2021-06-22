@@ -383,19 +383,25 @@ def generate_anchor(cfg, score_size):
 class SiameseTracker(nn.Module):
     def __init__(self):
         super(SiameseTracker, self).__init__()
-        # pretrain = False
-        # kwargs = {'anchors': {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0}}
         self.anchors = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'base_size': 8}
+        
         self.anchor_num = len(self.anchors["ratios"]) * len(self.anchors["scales"])
         self.score_size = 25
         self.anchor = generate_anchor(self.anchors, self.score_size)
-        
+        # 'anchor': array([[-96., -96., 104.,  32.],
+        #        [-88., -96., 104.,  32.],
+        #        [-80., -96., 104.,  32.],
+        #        ...,
+        #        [ 80.,  96.,  32.,  96.],
+        #        [ 88.,  96.,  32.,  96.],
+        #        [ 96.,  96.,  32.,  96.]], dtype=float32)}
+
         self.rpn_model = UP(anchor_num=self.anchor_num, feature_in=256, feature_out=256)
 
         self.instance_size = 255    # for search size
         self.template_size = 127
         self.penalty_k = 0.04
-        self.seg_thr = 0.35
+        self.segment_threshold = 0.35
 
         self.features = ResDown()
         self.mask_model = MaskCorr()

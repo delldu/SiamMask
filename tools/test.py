@@ -23,7 +23,7 @@ import torch
 import torch.nn.functional as F
 
 from utils.anchors import Anchors
-from utils.tracker_config import TrackerConfig
+# from utils.tracker_config import TrackerConfig
 
 from utils.config_helper import load_config
 
@@ -145,7 +145,7 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
     # hp = {'instance_size': 255, 
     #     'base_size': 8, 
     #     'out_size': 127, 
-    #     'seg_thr': 0.35, 
+    #     'segment_threshold': 0.35, 
     #     'penalty_k': 0.04, 
     #     'window_influence': 0.4,
     #     'lr': 1.0}
@@ -156,31 +156,7 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
     state = dict()
     state['image_height'] = im.shape[0]
     state['image_width'] = im.shape[1]
-    # p = TrackerConfig()
-    # p.update(hp, model.anchors)
-    # p.renew()
-    # p.scales = model.anchors['scales']
-    # p.ratios = model.anchors['ratios']
-    # p.anchor_num = model.anchor_num
-    # p.anchor = generate_anchor(model.anchors, p.score_size)
 
-    # (Pdb) print(p.__dict__)
-    # {'instance_size': 255, 
-    # 'base_size': 8, 
-    # 'out_size': 127, 
-    # 'seg_thr': 0.35, 'penalty_k': 0.04, 
-    # 'window_influence': 0.4, 'lr': 1.0, 
-    # 'total_stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 
-    # 'scales': [8], 'round_dight': 0, 
-    # 'score_size': 25, 'anchor_num': 5, 
-    # 'anchor': array([[-96., -96., 104.,  32.],
-    #        [-88., -96., 104.,  32.],
-    #        [-80., -96., 104.,  32.],
-    #        ...,
-    #        [ 80.,  96.,  32.,  96.],
-    #        [ 88.,  96.,  32.,  96.],
-    #        [ 96.,  96.,  32.,  96.]], dtype=float32)}
-    # pp p.exemplar_size -- 127
 
     avg_chans = np.mean(im, axis=(0, 1))
     # pdb.set_trace()
@@ -228,18 +204,6 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
 
 
 def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
-    # p = state['p']
-    # (Pdb) print(state['p'])
-    # <utils.tracker_config.TrackerConfig object at 0x7f4b95a0bd30>
-    # (Pdb) print(state['p'].__dict__)
-    # {'instance_size': 255, 'base_size': 8, 'out_size': 127, 'seg_thr': 0.35, 'penalty_k': 0.04, 'window_influence': 0.4, 'lr': 1.0, 'total_stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0, 'score_size': 25, 'anchor_num': 5, 'anchor': array([[-96., -96., 104.,  32.],
-    #        [-88., -96., 104.,  32.],
-    #        [-80., -96., 104.,  32.],
-    #        ...,
-    #        [ 80.,  96.,  32.,  96.],
-    #        [ 88.,  96.,  32.,  96.],
-    #        [ 96.,  96.,  32.,  96.]], dtype=float32)}
-
     avg_chans = state['avg_chans']
     # type(state['avg_chans']) -- <class 'numpy.ndarray'>
     # (Pdb) state['avg_chans'].shape -- (3,)
@@ -370,8 +334,8 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
         # (Pdb) back_box -- [-44.833333333333336, -3.1666666666666683, 237.22222222222223, 133.33333333333334]
         # (Pdb) mask_in_img.shape -- (480 -- state['image_height'], 854 -- width)
 
-        # pp p.seg_thr -- 0.35
-        target_mask = (mask_in_img > model.seg_thr).astype(np.uint8)
+        # pp p.segment_threshold -- 0.35
+        target_mask = (mask_in_img > model.segment_threshold).astype(np.uint8)
         # cv2.__version__ -- '4.4.0' ==> cv2.__version__[-5] == '4'
         if cv2.__version__[-5] == '4':
             contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
