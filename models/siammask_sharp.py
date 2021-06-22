@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from utils.anchors import Anchors
 from models.rpn import DepthCorr
 import math
+import numpy as np
 
 from typing import Dict, List, Tuple
 
@@ -325,15 +326,76 @@ class Refine(nn.Module):
         out = out.view(-1, 127*127)
         return out
 
+
+def generate_anchor(cfg, score_size):
+    # cfg = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0}
+    # score_size = 25
+
+    anchors = Anchors(cfg)
+    anchor = anchors.anchors
+
+    # (Pdb) anchor == anchors.anchors
+    # array([[-52., -16.,  52.,  16.],
+    #        [-44., -20.,  44.,  20.],
+    #        [-32., -32.,  32.,  32.],
+    #        [-20., -40.,  20.,  40.],
+    #        [-16., -48.,  16.,  48.]], dtype=float32)
+    # (Pdb) anchors.anchors.shape -- (5, 4)
+
+    x1, y1, x2, y2 = anchor[:, 0], anchor[:, 1], anchor[:, 2], anchor[:, 3]
+    anchor = np.stack([(x1+x2)*0.5, (y1+y2)*0.5, x2-x1, y2-y1], 1)
+
+    total_stride = anchors.stride
+    # total_stride == 8
+
+    anchor_num = anchor.shape[0]
+    # anchor_num -- 5
+    anchor = np.tile(anchor, score_size * score_size).reshape((-1, 4))
+    ori = - (score_size // 2) * total_stride
+    # (Pdb) ori == -96
+
+    xx, yy = np.meshgrid([ori + total_stride * dx for dx in range(score_size)],
+                         [ori + total_stride * dy for dy in range(score_size)])
+    xx, yy = np.tile(xx.flatten(), (anchor_num, 1)).flatten(), \
+             np.tile(yy.flatten(), (anchor_num, 1)).flatten()
+
+    # (Pdb) xx -- array([-96, -88, -80, ...,  80,  88,  96])
+    # (Pdb) xx.shape -- (3125,)
+    # (Pdb) yy -- array([-96, -96, -96, ...,  96,  96,  96])
+    # (Pdb) yy.shape -- (3125,)
+
+    anchor[:, 0], anchor[:, 1] = xx.astype(np.float32), yy.astype(np.float32)
+
+    # (Pdb) anchor
+    # array([[-96., -96., 104.,  32.],
+    #        [-88., -96., 104.,  32.],
+    #        [-80., -96., 104.,  32.],
+    #        ...,
+    #        [ 80.,  96.,  32.,  96.],
+    #        [ 88.,  96.,  32.,  96.],
+    #        [ 96.,  96.,  32.,  96.]], dtype=float32)
+    # (Pdb) anchor.shape
+    # (3125, 4)
+
+    return anchor
+
+
 class SiameseTracker(nn.Module):
     def __init__(self):
         super(SiameseTracker, self).__init__()
         # pretrain = False
         # kwargs = {'anchors': {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0}}
-        self.anchors = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8]}
+        self.anchors = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'base_size': 8}
         self.anchor_num = len(self.anchors["ratios"]) * len(self.anchors["scales"])
-        self.anchor = Anchors(self.anchors)
+        self.score_size = 25
+        self.anchor = generate_anchor(self.anchors, self.score_size)
+        
         self.rpn_model = UP(anchor_num=self.anchor_num, feature_in=256, feature_out=256)
+
+        self.instance_size = 255    # for search size
+        self.template_size = 127
+        self.penalty_k = 0.04
+        self.seg_thr = 0.35
 
         self.features = ResDown()
         self.mask_model = MaskCorr()

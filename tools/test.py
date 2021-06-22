@@ -130,57 +130,6 @@ def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans):
     return im_to_torch(im_patch)
 
 
-def generate_anchor(cfg, score_size):
-    # cfg = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0}
-    # score_size = 25
-
-    anchors = Anchors(cfg)
-    anchor = anchors.anchors
-
-    # (Pdb) anchor == anchors.anchors
-    # array([[-52., -16.,  52.,  16.],
-    #        [-44., -20.,  44.,  20.],
-    #        [-32., -32.,  32.,  32.],
-    #        [-20., -40.,  20.,  40.],
-    #        [-16., -48.,  16.,  48.]], dtype=float32)
-    # (Pdb) anchors.anchors.shape -- (5, 4)
-
-    x1, y1, x2, y2 = anchor[:, 0], anchor[:, 1], anchor[:, 2], anchor[:, 3]
-    anchor = np.stack([(x1+x2)*0.5, (y1+y2)*0.5, x2-x1, y2-y1], 1)
-
-    total_stride = anchors.stride
-    # total_stride == 8
-
-    anchor_num = anchor.shape[0]
-    # anchor_num -- 5
-    anchor = np.tile(anchor, score_size * score_size).reshape((-1, 4))
-    ori = - (score_size // 2) * total_stride
-    # (Pdb) ori == -96
-
-    xx, yy = np.meshgrid([ori + total_stride * dx for dx in range(score_size)],
-                         [ori + total_stride * dy for dy in range(score_size)])
-    xx, yy = np.tile(xx.flatten(), (anchor_num, 1)).flatten(), \
-             np.tile(yy.flatten(), (anchor_num, 1)).flatten()
-
-    # (Pdb) xx -- array([-96, -88, -80, ...,  80,  88,  96])
-    # (Pdb) xx.shape -- (3125,)
-    # (Pdb) yy -- array([-96, -96, -96, ...,  96,  96,  96])
-    # (Pdb) yy.shape -- (3125,)
-
-    anchor[:, 0], anchor[:, 1] = xx.astype(np.float32), yy.astype(np.float32)
-
-    # (Pdb) anchor
-    # array([[-96., -96., 104.,  32.],
-    #        [-88., -96., 104.,  32.],
-    #        [-80., -96., 104.,  32.],
-    #        ...,
-    #        [ 80.,  96.,  32.,  96.],
-    #        [ 88.,  96.,  32.,  96.],
-    #        [ 96.,  96.,  32.,  96.]], dtype=float32)
-    # (Pdb) anchor.shape
-    # (3125, 4)
-
-    return anchor
 
 
 def get_scale_size(h, w):
@@ -207,13 +156,13 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
     state = dict()
     state['image_height'] = im.shape[0]
     state['image_width'] = im.shape[1]
-    p = TrackerConfig()
-    p.update(hp, model.anchors)
-    p.renew()
+    # p = TrackerConfig()
+    # p.update(hp, model.anchors)
+    # p.renew()
     # p.scales = model.anchors['scales']
     # p.ratios = model.anchors['ratios']
     # p.anchor_num = model.anchor_num
-    p.anchor = generate_anchor(model.anchors, p.score_size)
+    # p.anchor = generate_anchor(model.anchors, p.score_size)
 
     # (Pdb) print(p.__dict__)
     # {'instance_size': 255, 
@@ -250,7 +199,7 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
     # initialize the exemplar
 
     # def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans):
-    z_crop = get_subwindow_tracking(im, target_pos, p.exemplar_size, s_z, avg_chans)
+    z_crop = get_subwindow_tracking(im, target_pos, model.template_size, s_z, avg_chans)
 
     # pdb.set_trace()
 
@@ -261,8 +210,8 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
 
     # p.windowing == 'cosine'
     # if p.windowing == 'cosine':
-    window = np.outer(np.hanning(p.score_size), np.hanning(p.score_size))
-    window = np.tile(window.flatten(), p.anchor_num)
+    window = np.outer(np.hanning(model.score_size), np.hanning(model.score_size))
+    window = np.tile(window.flatten(), model.anchor_num)
 
     # p window.shape -- (3125,)
     # (Pdb) pp window.max(), window.min(), window.mean() -- (1.0, 0.0, 0.2304)
@@ -270,7 +219,7 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
     # (Pdb) avg_chans
     # array([ 96.94782641, 114.56385148, 141.78324551])
 
-    state['p'] = p
+    # state['p'] = p
     state['avg_chans'] = avg_chans
     state['window'] = window
     state['target_pos'] = target_pos
@@ -279,7 +228,7 @@ def TrackingStart(model, im, target_pos, target_size, hp=None, device='cpu'):
 
 
 def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
-    p = state['p']
+    # p = state['p']
     # (Pdb) print(state['p'])
     # <utils.tracker_config.TrackerConfig object at 0x7f4b95a0bd30>
     # (Pdb) print(state['p'].__dict__)
@@ -313,18 +262,18 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     # s_x = np.sqrt(wc_x * hc_x)
     s_x = get_scale_size(target_size[0], target_size[1])
 
-    scale_x = p.exemplar_size / s_x
+    scale_x = model.template_size / s_x
     # s_x -- 457.27， scale_x -- 0.2777325006938416
 
     # p.instance_size -- 255, p.exemplar_size -- 127
-    d_search = (p.instance_size - p.exemplar_size) / 2
+    d_search = (model.instance_size - model.template_size) / 2
     pad = d_search / scale_x
     s_x = s_x + 2 * pad
     crop_box = [target_pos[0] - round(s_x) / 2, target_pos[1] - round(s_x) / 2, round(s_x), round(s_x)]
     # (Pdb) crop_box -- [-69.0, -219.0, 918, 918]
 
     # def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans):
-    x_crop = get_subwindow_tracking(im, target_pos, p.instance_size, round(s_x), avg_chans).unsqueeze(0)
+    x_crop = get_subwindow_tracking(im, target_pos, model.instance_size, round(s_x), avg_chans).unsqueeze(0)
     # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
 
     score, delta, mask = model.track_mask(x_crop.to(device))
@@ -338,10 +287,10 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     # delta.shape -- (4, 3125)
     # score.shape -- (3125,)
 
-    delta[0, :] = delta[0, :] * p.anchor[:, 2] + p.anchor[:, 0]
-    delta[1, :] = delta[1, :] * p.anchor[:, 3] + p.anchor[:, 1]
-    delta[2, :] = np.exp(delta[2, :]) * p.anchor[:, 2]
-    delta[3, :] = np.exp(delta[3, :]) * p.anchor[:, 3]
+    delta[0, :] = delta[0, :] * model.anchor[:, 2] + model.anchor[:, 0]
+    delta[1, :] = delta[1, :] * model.anchor[:, 3] + model.anchor[:, 1]
+    delta[2, :] = np.exp(delta[2, :]) * model.anchor[:, 2]
+    delta[3, :] = np.exp(delta[3, :]) * model.anchor[:, 3]
 
     def change(r):
         return np.maximum(r, 1. / r)
@@ -362,16 +311,18 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     r_c = change((target_sz_in_crop[0] / target_sz_in_crop[1]) / (delta[2, :] / delta[3, :]))  # ratio penalty
 
     # p.penalty_k -- 0.04
-    penalty = np.exp(-(r_c * s_c - 1) * p.penalty_k)
+    penalty = np.exp(-(r_c * s_c - 1) * model.penalty_k)
     pscore = penalty * score
 
     # cos window (motion model)
     # pp p.window_influence -- 0.4
-    pscore = pscore * (1 - p.window_influence) + window * p.window_influence
+    window_influence = 0.4
+    pscore = pscore * (1 - window_influence) + window * window_influence
+
     best_pscore_id = np.argmax(pscore)
 
     pred_in_crop = delta[:, best_pscore_id] / scale_x
-    lr = penalty[best_pscore_id] * score[best_pscore_id] * p.lr  # lr for OTB
+    lr = penalty[best_pscore_id] * score[best_pscore_id]  # lr for OTB
 
     res_x = pred_in_crop[0] + target_pos[0]
     res_y = pred_in_crop[1] + target_pos[1]
@@ -385,12 +336,12 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     # for Mask Branch
     # pp mask_enable -- True
     if mask_enable:
-        best_pscore_id_mask = np.unravel_index(best_pscore_id, (5, p.score_size, p.score_size))
+        best_pscore_id_mask = np.unravel_index(best_pscore_id, (5, model.score_size, model.score_size))
         delta_x, delta_y = best_pscore_id_mask[2], best_pscore_id_mask[1]
 
-        # pp p.out_size -- 127
+        # pp model.template_size -- 127
         mask = model.track_refine((delta_y, delta_x)).to(device).sigmoid().squeeze().view(
-            p.out_size, p.out_size).cpu().data.numpy()
+            model.template_size, model.template_size).cpu().data.numpy()
 
         def crop_back(image, bbox, out_sz, padding=-1):
             a = (out_sz[0] - 1) / bbox[2]
@@ -404,15 +355,15 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
                                   borderValue=padding)
             return crop
         # pp p.instance_size -- 255
-        s = crop_box[2] / p.instance_size
+        s = crop_box[2] / model.instance_size
         # pp p.base_size -- 8
         # (Pdb) pp p.total_stride -- 8
         # pp p.exemplar_size -- 127
 
-        sub_box = [crop_box[0] + (delta_x - p.base_size / 2) * p.total_stride * s,
-                   crop_box[1] + (delta_y - p.base_size / 2) * p.total_stride * s,
-                   s * p.exemplar_size, s * p.exemplar_size]
-        s = p.out_size / sub_box[2]
+        sub_box = [crop_box[0] + (delta_x - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
+                   crop_box[1] + (delta_y - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
+                   s * model.template_size, s * model.template_size]
+        s = model.template_size / sub_box[2]
         back_box = [-sub_box[0] * s, -sub_box[1] * s, state['image_width'] * s, state['image_height'] * s]
         mask_in_img = crop_back(mask, back_box, (state['image_width'], state['image_height']))
         # mask.shape -- (127, 127)
@@ -420,7 +371,7 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
         # (Pdb) mask_in_img.shape -- (480 -- state['image_height'], 854 -- width)
 
         # pp p.seg_thr -- 0.35
-        target_mask = (mask_in_img > p.seg_thr).astype(np.uint8)
+        target_mask = (mask_in_img > model.seg_thr).astype(np.uint8)
         # cv2.__version__ -- '4.4.0' ==> cv2.__version__[-5] == '4'
         if cv2.__version__[-5] == '4':
             contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
