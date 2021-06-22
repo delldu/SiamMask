@@ -48,8 +48,6 @@ def center2corner(center):
 
 
 def cxy_wh_2_rect(pos, sz):
-    pdb.set_trace()
-
     return np.array([pos[0]-sz[0]/2, pos[1]-sz[1]/2, sz[0], sz[1]])  # 0-index
 
 

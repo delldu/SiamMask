@@ -407,7 +407,15 @@ class SiameseTracker(nn.Module):
         self.mask_model = MaskCorr()
         self.refine_model = Refine()
 
-    def template(self, template):
+        window = torch.hamming_window(self.score_size)
+        window = window.view(self.score_size, 1) * window.view(1, self.score_size)
+        self.window = window.flatten().repeat(self.anchor_num)
+        # self.window.size: (225 * 25 * 5) = 3125
+
+        # Set standard template features
+        self.zf = torch.zeros(1, 256, 7, 7)
+
+    def set_template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
         _, self.zf = self.features(template)
 
