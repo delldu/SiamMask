@@ -234,8 +234,8 @@ class RPN(nn.Module):
         self.loc = DepthCorr(feature_in, feature_out, self.loc_output)
 
     def forward(self, z_f, x_f):
-        cls = self.cls(z_f, x_f)
-        loc = self.loc(z_f, x_f)
+        _, cls = self.cls(z_f, x_f)
+        _, loc = self.loc(z_f, x_f)
         return cls, loc
 
 
@@ -247,10 +247,6 @@ class MaskCorr(nn.Module):
 
     def forward(self, z, x):
         return self.mask(z, x)
-
-        # self.corr_feature = self.mask_model.mask.forward_corr(self.zf, self.search)
-        # pred_mask = self.mask_model.mask.head(self.corr_feature)
-
 
 class Refine(nn.Module):
     def __init__(self):
@@ -414,30 +410,42 @@ class SiameseTracker(nn.Module):
         self.full_feature = None
         self.corr_feature = None
 
+        self.reset_mode(is_training=False)
+
+    def reset_mode(self, is_training=False):
+        if is_training:
+            self.features.train()
+            self.mask_model.train()
+            self.refine_model.train()
+        else:
+            self.features.eval()
+            self.mask_model.eval()
+            self.refine_model.eval()
+
     def set_image_size(self, h, w):
         self.image_height = h
         self.image_width = w
 
     def set_template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
-        _, self.zf = self.features(template)
+        with torch.no_grad():
+            _, self.zf = self.features(template)
 
     def set_background(self, bgcolor):
         self.background = bgcolor
 
     def track_mask(self, search):
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
-        self.full_feature, self.search = self.features(search)
-        # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
-        rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, self.search)
+        with torch.no_grad():
+            self.full_feature, self.search = self.features(search)
+            # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
+            rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, self.search)
 
-        self.corr_feature = self.mask_model.mask.forward_corr(self.zf, self.search)
-        pred_mask = self.mask_model.mask.head(self.corr_feature)
-
-        # self.corr_feature, pred_mask = self.mask_model(self.zf, self.search)
+            self.corr_feature, pred_mask = self.mask_model(self.zf, self.search)
 
         return rpn_pred_cls, rpn_pred_loc, pred_mask
 
     def track_refine(self, pos):
-        pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
+        with torch.no_grad():
+            pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
         return pred_mask

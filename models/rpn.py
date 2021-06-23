@@ -76,11 +76,14 @@ class DepthCorr(nn.Module):
     def forward(self, kernel, search):
         # (Pdb) kernel.size() -- torch.Size([1, 256, 7, 7])
         # (Pdb) search.size() -- torch.Size([1, 256, 31, 31])
+
+        # corr_feature
         feature = self.forward_corr(kernel, search)
+        # feature.size() -- torch.Size([1, 256, 25, 25])
         out = self.head(feature)
         # (Pdb) out.size() -- torch.Size([1, 10, 25, 25])
 
-        return out
+        return feature, out
 
 if __name__ == '__main__':
     model = DepthCorr(256, 256, 10)
