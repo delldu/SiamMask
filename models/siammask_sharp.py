@@ -415,6 +415,14 @@ class SiameseTracker(nn.Module):
         # Set standard template features
         self.zf = torch.zeros(1, 256, 7, 7)
 
+        # Reasonable height/width ?
+        self.image_height = 256
+        self.image_width = 256
+
+    def set_image_size(self, h, w):
+        self.image_height = h
+        self.image_width = w
+
     def set_template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
         _, self.zf = self.features(template)

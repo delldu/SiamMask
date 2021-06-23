@@ -61,14 +61,14 @@ if __name__ == '__main__':
     for f, im in enumerate(ims):
         tic = cv2.getTickCount()
         state = TrackingDoing(siammask, state, im, mask_enable=True, device=device)  # track
-        # (Pdb) pp state.keys() -- dict_keys(['image_height', 'image_width', 'p', 'net', 'avg_chans', 'window', 'target_pos', 'target_size', 'score', 'mask', 'ploygon'])
+        # (Pdb) pp state.keys() -- dict_keys('avg_chans', 'target_pos', 'target_size', 'score', 'mask')
 
-        location = state['ploygon'].flatten()
-        mask = state['mask'] > siammask.segment_threshold
+        # location = state['ploygon'].flatten()
+        mask = state['mask']
 
         # BGR format !!!
         im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
-        cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
+        # cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
         
         cv2.imshow('SiamMask', im)
         key = cv2.waitKey(1)

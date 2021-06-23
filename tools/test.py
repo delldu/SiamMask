@@ -101,16 +101,14 @@ def TrackingStart(model, im, target_pos, target_size, device='cpu'):
     # (<class 'numpy.ndarray'>, 0, 255, (480, 854, 3))
 
     state = dict()
-    state['image_height'] = im.shape[0]
-    state['image_width'] = im.shape[1]
+
+    model.set_image_size(im.shape[0], im.shape[1])
 
     avg_chans = np.mean(im, axis=(0, 1))
     # x = torch.from_numpy(im)
     # avg_chans = x.mean(dim = 0, keepdim=False).mean(dim = 0, keepdim=False)
 
-
     s_z = round(get_scale_size(target_size[0], target_size[1]))
-
  
     # initialize the exemplar
 
@@ -152,7 +150,7 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     scale_x = model.template_size / s_x
     # s_x -- 457.27， scale_x -- 0.2777325006938416
 
-    # p.instance_size -- 255, p.exemplar_size -- 127
+    # p.instance_size -- 255, p.template_size -- 127
     d_search = (model.instance_size - model.template_size) / 2
     pad = d_search / scale_x
     s_x = s_x + 2 * pad
@@ -187,14 +185,15 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
         sz2 = (w + pad) * (h + pad)
         return np.sqrt(sz2)
 
-    def sz_wh(wh):
-        pad = (wh[0] + wh[1]) * 0.5
-        sz2 = (wh[0] + pad) * (wh[1] + pad)
-        return np.sqrt(sz2)
+    # def sz_wh(wh):
+    #     pad = (wh[0] + wh[1]) * 0.5
+    #     sz2 = (wh[0] + pad) * (wh[1] + pad)
+    #     return np.sqrt(sz2)
 
     # size penalty
     target_sz_in_crop = target_size*scale_x
-    s_c = change(sz(delta[2, :], delta[3, :]) / (sz_wh(target_sz_in_crop)))  # scale penalty
+    # s_c = change(sz(delta[2, :], delta[3, :]) / (sz_wh(target_sz_in_crop)))  # scale penalty
+    s_c = change(sz(delta[2, :], delta[3, :]) / (sz(target_sz_in_crop[0], target_sz_in_crop[1])))  # scale penalty
     r_c = change((target_sz_in_crop[0] / target_sz_in_crop[1]) / (delta[2, :] / delta[3, :]))  # ratio penalty
 
     # p.penalty_k -- 0.04
@@ -205,11 +204,12 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     window_influence = 0.4
     pscore = pscore * (1 - window_influence) + window * window_influence
 
-    best_pscore_id = np.argmax(pscore)
+    best_id = np.argmax(pscore)
 
-    pred_in_crop = delta[:, best_pscore_id] / scale_x
-    lr = penalty[best_pscore_id] * score[best_pscore_id]  # lr for OTB
+    pred_in_crop = delta[:, best_id] / scale_x
+    lr = penalty[best_id] * score[best_id]  # lr for OTB
 
+    # format: x, y, w, h
     res_x = pred_in_crop[0] + target_pos[0]
     res_y = pred_in_crop[1] + target_pos[1]
 
@@ -222,18 +222,22 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     # for Mask Branch
     # pp mask_enable -- True
     if mask_enable:
-        best_pscore_id_mask = np.unravel_index(best_pscore_id, (5, model.score_size, model.score_size))
-        delta_x, delta_y = best_pscore_id_mask[2], best_pscore_id_mask[1]
+        best_id_mask = np.unravel_index(best_id, (5, model.score_size, model.score_size))
+        delta_x, delta_y = best_id_mask[2], best_id_mask[1]
 
         # pp model.template_size -- 127
         mask = model.track_refine((delta_y, delta_x)).to(device).sigmoid().squeeze().view(
             model.template_size, model.template_size).cpu().data.numpy()
+        #  pp delta_y, delta_x -- (13, 12), mask.shape -- (127, 127)
 
+        # out_sz -- (model.image_width, model.image_height)
         def crop_back(image, bbox, out_sz, padding=-1):
-            a = (out_sz[0] - 1) / bbox[2]
-            b = (out_sz[1] - 1) / bbox[3]
-            c = -a * bbox[0]
-            d = -b * bbox[1]
+            a = (out_sz[0] - 1) / bbox[2]   # width
+            b = (out_sz[1] - 1) / bbox[3]   # height
+            c = -a * bbox[0]    # x
+            d = -b * bbox[1]    # y
+            # w-a  0    x-c
+            # 0    h-b  y-d
             mapping = np.array([[a, 0, c], [0, b, d]]).astype(np.float)
             crop = cv2.warpAffine(image, mapping, (out_sz[0], out_sz[1]),
                                   flags=cv2.INTER_LINEAR,
@@ -241,54 +245,50 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
                                   borderValue=padding)
             return crop
         # pp p.instance_size -- 255
-        s = crop_box[2] / model.instance_size
-        # pp p.base_size -- 8
-        # (Pdb) pp p.total_stride -- 8
-        # pp p.exemplar_size -- 127
+        s = crop_box[2] / model.instance_size   # width/height is same for crop_box
 
         sub_box = [crop_box[0] + (delta_x - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
                    crop_box[1] + (delta_y - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
                    s * model.template_size, s * model.template_size]
-        s = model.template_size / sub_box[2]
-        back_box = [-sub_box[0] * s, -sub_box[1] * s, state['image_width'] * s, state['image_height'] * s]
-        mask_in_img = crop_back(mask, back_box, (state['image_width'], state['image_height']))
-        # mask.shape -- (127, 127)
-        # (Pdb) back_box -- [-44.833333333333336, -3.1666666666666683, 237.22222222222223, 133.33333333333334]
-        # (Pdb) mask_in_img.shape -- (480 -- state['image_height'], 854 -- width)
 
-        # pp p.segment_threshold -- 0.35
+        s = model.template_size / sub_box[2]
+        back_box = [-sub_box[0] * s, -sub_box[1] * s, model.image_width * s, model.image_height * s]
+
+        mask_in_img = crop_back(mask, back_box, (model.image_width, model.image_height))
+        # mask.shape -- (127, 127)
+        # (Pdb) back_box -- [-44.8, -3.1, 237.2, 133.3]
+        # (Pdb) mask_in_img.shape -- (480, 854), here (480 -- state['image_height'], 854 -- width)
         target_mask = (mask_in_img > model.segment_threshold).astype(np.uint8)
 
         # cv2.__version__ -- '4.4.0' ==> cv2.__version__[-5] == '4'
-        if cv2.__version__[-5] == '4':
-            contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        else:
-            _, contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        cnt_area = [cv2.contourArea(cnt) for cnt in contours]
-        if len(contours) != 0 and np.max(cnt_area) > 100:
-            contour = contours[np.argmax(cnt_area)]  # use max area polygon
-            polygon = contour.reshape(-1, 2)
-            # pbox = cv2.boundingRect(polygon)  # Min Max Rectangle
-            prbox = cv2.boxPoints(cv2.minAreaRect(polygon))  # Rotated Rectangle
+        # if cv2.__version__[-5] == '4':
+        #     contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        # else:
+        #     _, contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        # cnt_area = [cv2.contourArea(cnt) for cnt in contours]
+        # if len(contours) != 0 and np.max(cnt_area) > 100:
+        #     contour = contours[np.argmax(cnt_area)]  # use max area polygon
+        #     polygon = contour.reshape(-1, 2)
+        #     # pbox = cv2.boundingRect(polygon)  # Min Max Rectangle
+        #     prbox = cv2.boxPoints(cv2.minAreaRect(polygon))  # Rotated Rectangle
 
-            rbox_in_img = prbox
-        else:  # empty mask
-            location = cxy_wh_2_rect(target_pos, target_size)
-            rbox_in_img = np.array([[location[0], location[1]],
-                                    [location[0] + location[2], location[1]],
-                                    [location[0] + location[2], location[1] + location[3]],
-                                    [location[0], location[1] + location[3]]])
+        #     rbox_in_img = prbox
+        # else:  # empty mask
+        #     location = cxy_wh_2_rect(target_pos, target_size)
+        #     rbox_in_img = np.array([[location[0], location[1]],
+        #                             [location[0] + location[2], location[1]],
+        #                             [location[0] + location[2], location[1] + location[3]],
+        #                             [location[0], location[1] + location[3]]])
 
-    # type(state['image_width']) -- <class 'int'>
-    target_pos[0] = max(0, min(state['image_width'], target_pos[0]))
-    target_pos[1] = max(0, min(state['image_height'], target_pos[1]))
-    target_size[0] = max(10, min(state['image_width'], target_size[0]))
-    target_size[1] = max(10, min(state['image_height'], target_size[1]))
+    target_pos[0] = max(0, min(model.image_width, target_pos[0]))
+    target_pos[1] = max(0, min(model.image_height, target_pos[1]))
+    target_size[0] = max(10, min(model.image_width, target_size[0]))
+    target_size[1] = max(10, min(model.image_height, target_size[1]))
 
     state['target_pos'] = target_pos
     state['target_size'] = target_size
-    state['score'] = score[best_pscore_id]
-    state['mask'] = mask_in_img
+    state['score'] = score[best_id]
+    state['mask'] = target_mask
 
-    state['ploygon'] = rbox_in_img
+    # state['ploygon'] = rbox_in_img
     return state
