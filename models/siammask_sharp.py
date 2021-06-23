@@ -410,6 +410,12 @@ class SiameseTracker(nn.Module):
         self.full_feature = None
         self.corr_feature = None
 
+        # rc -- row center, cc -- column center
+        self.target_rc = 64
+        self.target_cc = 64
+        self.target_h = 127
+        self.target_w = 127
+
         self.reset_mode(is_training=False)
 
     def reset_mode(self, is_training=False):
@@ -425,6 +431,13 @@ class SiameseTracker(nn.Module):
     def set_image_size(self, h, w):
         self.image_height = h
         self.image_width = w
+
+    def set_target(self, rc, cc, h, w):
+        self.target_rc = rc
+        self.target_cc = cc
+        self.target_h = h
+        self.target_w = w
+
 
     def set_template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])

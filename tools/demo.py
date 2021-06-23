@@ -55,24 +55,20 @@ if __name__ == '__main__':
     # except:
     #     exit()
     x, y, h, w = 300, 100, 280, 180
-    target_pos = np.array([x + w / 2, y + h / 2])
-    target_size = np.array([w, h])
-    state = TrackingStart(
-        siammask, ims[0], target_pos, target_size, device=device)  # init tracker
+    siammask.set_target(y + h/2, x + w/2, h, w)
+
+    state = TrackingStart(siammask, ims[0], device=device)  # init tracker
 
     toc = 0
     for f, im in enumerate(ims):
         tic = cv2.getTickCount()
-        state = TrackingDoing(siammask, state, im,
-                              mask_enable=True, device=device)  # track
-        # (Pdb) pp state.keys() -- dict_keys('avg_chans', 'target_pos', 'target_size', 'score', 'mask')
+        state = TrackingDoing(siammask, state, im, device=device)  # track
+        # (Pdb) pp state.keys() -- dict_keys('score', 'mask')
 
-        # location = state['ploygon'].flatten()
         mask = state['mask']
 
         # BGR format !!!
         im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
-        # cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
 
         cv2.imshow('SiamMask', im)
         key = cv2.waitKey(1)

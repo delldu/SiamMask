@@ -74,15 +74,13 @@ def get_range_pad(y, d, maxy):
     return y1, y2, pad1, pad2
 
 
-def get_subwindow_tracking(im, target_pos, target_size, search_size, avg_chans):
+def get_subwindow(im, target_rc, target_cc, target_size, search_size, avg_chans):
     # (Pdb) type(im) -- <class 'numpy.ndarray'>, (Pdb) im.shape -- (480, 854, 3), range: [0, 255], uint8
 
     height, width, chan = im.shape
 
-    x1, x2, left_pad, right_pad = get_range_pad(
-        target_pos[0], search_size, width)
-    y1, y2, top_pad, bottom_pad = get_range_pad(
-        target_pos[1], search_size, height)
+    x1, x2, left_pad, right_pad = get_range_pad(target_cc, search_size, width)
+    y1, y2, top_pad, bottom_pad = get_range_pad(target_rc, search_size, height)
 
     big = np.zeros((height + top_pad + bottom_pad, width +
                    left_pad + right_pad, chan), np.uint8)
@@ -105,7 +103,7 @@ def get_scale_size(h, w):
     return math.sqrt((3 * h + w) * (3 * w + h))/2
 
 
-def TrackingStart(model, im, target_pos, target_size, device='cpu'):
+def TrackingStart(model, im, device='cpu'):
     # (Pdb) type(im), im.min(), im.max(), im.shape
     # (<class 'numpy.ndarray'>, 0, 255, (480, 854, 3))
 
@@ -114,16 +112,16 @@ def TrackingStart(model, im, target_pos, target_size, device='cpu'):
     model.set_image_size(im.shape[0], im.shape[1])
 
     avg_chans = np.mean(im, axis=(0, 1))
+    model.set_background(avg_chans)
+
     # x = torch.from_numpy(im)
     # avg_chans = x.mean(dim = 0, keepdim=False).mean(dim = 0, keepdim=False)
 
-    s_z = round(get_scale_size(target_size[0], target_size[1]))
+    s_z = round(get_scale_size(model.target_h, model.target_w))
 
     # initialize the exemplar
 
-    # def get_subwindow_tracking(im, pos, target_size, search_size, avg_chans):
-    z_crop = get_subwindow_tracking(
-        im, target_pos, model.template_size, s_z, avg_chans)
+    z_crop = get_subwindow(im, model.target_rc, model.target_cc, model.template_size, s_z, avg_chans)
 
     # (Pdb) pp z_crop.shape -- torch.Size([1, 3, 127, 127]), format range: [0, 255]
 
@@ -132,29 +130,14 @@ def TrackingStart(model, im, target_pos, target_size, device='cpu'):
     # (Pdb) avg_chans
     # array([ 96.94782641, 114.56385148, 141.78324551])
 
-    state['avg_chans'] = avg_chans
-    state['target_pos'] = target_pos
-    state['target_size'] = target_size
     return state
 
 
-def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
-    avg_chans = state['avg_chans']
-    # type(state['avg_chans']) -- <class 'numpy.ndarray'>
-    # (Pdb) state['avg_chans'].shape -- (3,)
-
-    window = model.window.numpy()
-
-    target_pos = state['target_pos']
-    # (Pdb) state['target_pos'] -- array([390., 240.])
-    # (Pdb) state['target_pos'].shape -- (2,)
-
-    target_size = state['target_size']
-    # (Pdb) state['target_size'] -- array([180, 280])
-    # (Pdb) state['target_size'].shape -- (2,)
+def TrackingDoing(model, state, im, device='cpu'):
+    avg_chans = model.background
 
     # mask_enable = True
-    s_x = get_scale_size(target_size[0], target_size[1])
+    s_x = get_scale_size(model.target_h, model.target_w)
 
     scale_x = model.template_size / s_x
     # s_x -- 457.27， scale_x -- 0.2777325006938416
@@ -163,13 +146,10 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
     d_search = (model.instance_size - model.template_size) / 2
     pad = d_search / scale_x
     s_x = s_x + 2 * pad
-    crop_box = [target_pos[0] -
-                round(s_x) / 2, target_pos[1] - round(s_x) / 2, round(s_x), round(s_x)]
+    crop_box = [model.target_cc - round(s_x) / 2, model.target_rc - round(s_x) / 2, round(s_x), round(s_x)]
     # (Pdb) crop_box -- [-69.0, -219.0, 918, 918]
 
-    # def get_subwindow_tracking(im, pos, target_size, search_size, avg_chans):
-    x_crop = get_subwindow_tracking(
-        im, target_pos, model.instance_size, round(s_x), avg_chans)
+    x_crop = get_subwindow(im, model.target_rc, model.target_cc, model.instance_size, round(s_x), avg_chans)
     # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
 
     score, delta, mask = model.track_mask(x_crop.to(device))
@@ -201,12 +181,11 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
         return np.sqrt(sz2)
 
     # size penalty
-    target_sz_in_crop = target_size*scale_x
+    target_sz_in_crop_h = model.target_h * scale_x
+    target_sz_in_crop_w = model.target_w * scale_x
     # s_c = change(sz(delta[2, :], delta[3, :]) / (sz_wh(target_sz_in_crop)))  # scale penalty
-    s_c = change(sz(delta[2, :], delta[3, :]) /
-                 (sz(target_sz_in_crop[0], target_sz_in_crop[1])))  # scale penalty
-    r_c = change((target_sz_in_crop[0] / target_sz_in_crop[1]
-                  ) / (delta[2, :] / delta[3, :]))  # ratio penalty
+    s_c = change(sz(delta[2, :], delta[3, :]) / (sz(target_sz_in_crop_h, target_sz_in_crop_w)))  # scale penalty
+    r_c = change((target_sz_in_crop_w / target_sz_in_crop_h) / (delta[2, :] / delta[3, :]))  # ratio penalty
 
     # p.penalty_k -- 0.04
     penalty = np.exp(-(r_c * s_c - 1) * model.penalty_k)
@@ -214,130 +193,105 @@ def TrackingDoing(model, state, im, mask_enable=False, device='cpu'):
 
     # pp p.window_influence -- 0.4
     window_influence = 0.4
-    pscore = pscore * (1 - window_influence) + window * window_influence
+    pscore = pscore * (1 - window_influence) + model.window.numpy() * window_influence
 
     best_id = np.argmax(pscore)
 
     pred_in_crop = delta[:, best_id] / scale_x
     lr = penalty[best_id] * score[best_id]  # lr for OTB
 
-    # format: x, y, w, h
-    res_x = pred_in_crop[0] + target_pos[0]
-    res_y = pred_in_crop[1] + target_pos[1]
+    # bbox format: x, y, w, h
+    # update model target pos, size via prediction
+    model.target_rc += pred_in_crop[1]
+    model.target_cc += pred_in_crop[0]
+    model.target_w = model.target_w * (1 - lr) + pred_in_crop[2] * lr
+    model.target_h = model.target_h * (1 - lr) + pred_in_crop[3] * lr
 
-    res_w = target_size[0] * (1 - lr) + pred_in_crop[2] * lr
-    res_h = target_size[1] * (1 - lr) + pred_in_crop[3] * lr
-
-    target_pos = np.array([res_x, res_y])
-    target_size = np.array([res_w, res_h])
 
     # for Mask Branch
-    # pp mask_enable -- True
-    if mask_enable:
-        best_id_mask = np.unravel_index(
-            best_id, (5, model.score_size, model.score_size))
-        delta_y, delta_x = best_id_mask[1], best_id_mask[2]
+    best_id_mask = np.unravel_index(best_id, (5, model.score_size, model.score_size))
+    delta_y, delta_x = best_id_mask[1], best_id_mask[2]
 
-        # pp model.template_size -- 127
-        mask = model.track_refine((delta_y, delta_x)).to(device).sigmoid().squeeze().view(
-            model.template_size, model.template_size).cpu().data.numpy()
-        #  pp delta_y, delta_x -- (13, 12), mask.shape -- (127, 127)
+    # pp model.template_size -- 127
+    mask = model.track_refine((delta_y, delta_x)).to(device).sigmoid().squeeze().view(
+        model.template_size, model.template_size).cpu().data.numpy()
+    #  pp delta_y, delta_x -- (13, 12), mask.shape -- (127, 127)
 
-        # out_sz -- (model.image_width, model.image_height)
-        def crop_back(mask, bbox, out_sz, padding=-1):
-            W = out_sz[0]
-            H = out_sz[1]
+    # out_sz -- (model.image_width, model.image_height)
+    def crop_back(mask, bbox, out_sz, padding=-1):
+        W = out_sz[0]
+        H = out_sz[1]
 
-            a = W / bbox[2]   # width
-            b = H / bbox[3]   # height
-            c = -a * bbox[0]    # x
-            d = -b * bbox[1]    # y
+        a = W / bbox[2]   # width
+        b = H / bbox[3]   # height
+        c = -a * bbox[0]    # x
+        d = -b * bbox[1]    # y
 
-            # Transform matrix:
-            # w-a  0    x-c
-            # 0    h-b  y-d
+        # Transform matrix:
+        # w-a  0    x-c
+        # 0    h-b  y-d
 
-            # theta = torch.FloatTensor([[1.0/a, 0, -c/W], [0, 1.0/b, -d/H]]).unsqueeze(0)
-            # grid = F.affine_grid(theta, (1, 1, H, W), align_corners=False)
-            # grid_0 = grid[:, :, :, 0]
-            # grid_0 = grid_0 - grid_0.mean()
-            # grid_0 = grid_0/(grid_0.max() + 1e-6)
+        # theta = torch.FloatTensor([[1.0/a, 0, -c/W], [0, 1.0/b, -d/H]]).unsqueeze(0)
+        # grid = F.affine_grid(theta, (1, 1, H, W), align_corners=False)
+        # grid_0 = grid[:, :, :, 0]
+        # grid_0 = grid_0 - grid_0.mean()
+        # grid_0 = grid_0/(grid_0.max() + 1e-6)
 
-            # grid_1 = grid[:, :, :, 1]
-            # grid_1 = grid_1 - grid_1.mean()
-            # grid_1 = grid_1/(grid_1.max() + 1e-6)
+        # grid_1 = grid[:, :, :, 1]
+        # grid_1 = grid_1 - grid_1.mean()
+        # grid_1 = grid_1/(grid_1.max() + 1e-6)
 
-            # grid = torch.stack((grid_0, grid_1), dim=3)
+        # grid = torch.stack((grid_0, grid_1), dim=3)
 
-            # # grid = grid - grid.mean()
-            # # grid = grid/(grid.max() + 1e-6)
+        # # grid = grid - grid.mean()
+        # # grid = grid/(grid.max() + 1e-6)
 
-            # input = torch.from_numpy(mask).unsqueeze(0).unsqueeze(0)
-            # output = F.grid_sample(input, grid, mode='bilinear', align_corners=True, padding_mode="zeros")
-            # output = output.squeeze(0).squeeze(0).numpy()
+        # input = torch.from_numpy(mask).unsqueeze(0).unsqueeze(0)
+        # output = F.grid_sample(input, grid, mode='bilinear', align_corners=True, padding_mode="zeros")
+        # output = output.squeeze(0).squeeze(0).numpy()
 
-            # return output
+        # return output
 
-            mapping = np.array([[a, 0, c], [0, b, d]]).astype(np.float)
-            crop = cv2.warpAffine(mask, mapping, (out_sz[0], out_sz[1]),
-                                  flags=cv2.INTER_LINEAR,
-                                  borderMode=cv2.BORDER_CONSTANT,
-                                  borderValue=padding)
+        mapping = np.array([[a, 0, c], [0, b, d]]).astype(np.float)
+        crop = cv2.warpAffine(mask, mapping, (out_sz[0], out_sz[1]),
+                              flags=cv2.INTER_LINEAR,
+                              borderMode=cv2.BORDER_CONSTANT,
+                              borderValue=padding)
 
-            # (Pdb) pp mask.shape -- (127, 127)
-            # (Pdb) pp bbox -- [-44.83, -11.16, 237.22, 133.33], x, y, w, h
-            # (Pdb) pp out_sz -- (854, 480) w, h
-            # pp crop.shape -- (480, 854), h, w
-            # ==> (Pdb) pp a, b, c, d -- (3.6, 3.60, 161.4(x?), 40.20)
+        # (Pdb) pp mask.shape -- (127, 127)
+        # (Pdb) pp bbox -- [-44.83, -11.16, 237.22, 133.33], x, y, w, h
+        # (Pdb) pp out_sz -- (854, 480) w, h
+        # pp crop.shape -- (480, 854), h, w
+        # ==> (Pdb) pp a, b, c, d -- (3.6, 3.60, 161.4(x?), 40.20)
 
-            return crop
-        # pp p.instance_size -- 255
-        # width/height is same for crop_box
-        s = crop_box[2] / model.instance_size
+        return crop
+    # pp p.instance_size -- 255
+    # width/height is same for crop_box
+    s = crop_box[2] / model.instance_size
 
-        sub_box = [crop_box[0] + (delta_x - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
-                   crop_box[1] + (delta_y - model.anchors["base_size"] /
-                                  2) * model.anchors["stride"] * s,
-                   s * model.template_size, s * model.template_size]
+    sub_box = [crop_box[0] + (delta_x - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
+               crop_box[1] + (delta_y - model.anchors["base_size"] /
+                              2) * model.anchors["stride"] * s,
+               s * model.template_size, s * model.template_size]
 
-        s = model.template_size / sub_box[2]
-        back_box = [-sub_box[0] * s, -sub_box[1] * s,
-                    model.image_width * s, model.image_height * s]
+    s = model.template_size / sub_box[2]
+    back_box = [-sub_box[0] * s, -sub_box[1] * s,
+                model.image_width * s, model.image_height * s]
 
-        mask_in_img = crop_back(
-            mask, back_box, (model.image_width, model.image_height))
-        # mask.shape -- (127, 127)
-        # (Pdb) back_box -- [-44.8, -3.1, 237.2, 133.3]
-        # (Pdb) mask_in_img.shape -- (480, 854), here (480 -- state['image_height'], 854 -- width)
-        target_mask = (mask_in_img > model.segment_threshold).astype(np.uint8)
+    mask_in_img = crop_back(
+        mask, back_box, (model.image_width, model.image_height))
+    # mask.shape -- (127, 127)
+    # (Pdb) back_box -- [-44.8, -3.1, 237.2, 133.3]
+    # (Pdb) mask_in_img.shape -- (480, 854), here (480 -- state['image_height'], 854 -- width)
+    target_mask = (mask_in_img > model.segment_threshold).astype(np.uint8)
 
-        # cv2.__version__ -- '4.4.0' ==> cv2.__version__[-5] == '4'
-        # if cv2.__version__[-5] == '4':
-        #     contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        # else:
-        #     _, contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        # cnt_area = [cv2.contourArea(cnt) for cnt in contours]
-        # if len(contours) != 0 and np.max(cnt_area) > 100:
-        #     contour = contours[np.argmax(cnt_area)]  # use max area polygon
-        #     polygon = contour.reshape(-1, 2)
-        #     # pbox = cv2.boundingRect(polygon)  # Min Max Rectangle
-        #     prbox = cv2.boxPoints(cv2.minAreaRect(polygon))  # Rotated Rectangle
 
-        #     rbox_in_img = prbox
-        # else:  # empty mask
-        #     location = cxy_wh_2_rect(target_pos, target_size)
-        #     rbox_in_img = np.array([[location[0], location[1]],
-        #                             [location[0] + location[2], location[1]],
-        #                             [location[0] + location[2], location[1] + location[3]],
-        #                             [location[0], location[1] + location[3]]])
+    # Update for next prediction
+    model.target_rc = max(0, min(model.image_height, model.target_rc))
+    model.target_cc = max(0, min(model.image_width, model.target_cc))
+    model.target_h = max(10, min(model.image_height, model.target_h))
+    model.target_w = max(10, min(model.image_width, model.target_w))
 
-    target_pos[0] = max(0, min(model.image_width, target_pos[0]))
-    target_pos[1] = max(0, min(model.image_height, target_pos[1]))
-    target_size[0] = max(10, min(model.image_width, target_size[0]))
-    target_size[1] = max(10, min(model.image_height, target_size[1]))
-
-    state['target_pos'] = target_pos
-    state['target_size'] = target_size
     state['score'] = score[best_id]
     state['mask'] = target_mask
 
