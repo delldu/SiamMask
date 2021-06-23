@@ -4,16 +4,18 @@
 # Written by Qiang Wang (wangqiang2015 at ia.ac.cn)
 # --------------------------------------------------------
 import glob
-from tools.test import *
 import pdb
+
+from tools.test import *
 
 parser = argparse.ArgumentParser(description='PyTorch Tracking Demo')
 
 parser.add_argument('--resume', default='', type=str, required=True,
-                    metavar='PATH',help='path to latest checkpoint (default: none)')
+                    metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--config', dest='config', default='config_davis.json',
                     help='hyper-parameter of SiamMask in json format')
-parser.add_argument('--base_path', default='../../data/tennis', help='datasets')
+parser.add_argument(
+    '--base_path', default='../../data/tennis', help='datasets')
 parser.add_argument('--cpu', action='store_true', help='cpu mode')
 args = parser.parse_args()
 
@@ -55,12 +57,14 @@ if __name__ == '__main__':
     x, y, h, w = 300, 100, 280, 180
     target_pos = np.array([x + w / 2, y + h / 2])
     target_size = np.array([w, h])
-    state = TrackingStart(siammask, ims[0], target_pos, target_size, device=device)  # init tracker
+    state = TrackingStart(
+        siammask, ims[0], target_pos, target_size, device=device)  # init tracker
 
     toc = 0
     for f, im in enumerate(ims):
         tic = cv2.getTickCount()
-        state = TrackingDoing(siammask, state, im, mask_enable=True, device=device)  # track
+        state = TrackingDoing(siammask, state, im,
+                              mask_enable=True, device=device)  # track
         # (Pdb) pp state.keys() -- dict_keys('avg_chans', 'target_pos', 'target_size', 'score', 'mask')
 
         # location = state['ploygon'].flatten()
@@ -69,7 +73,7 @@ if __name__ == '__main__':
         # BGR format !!!
         im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
         # cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
-        
+
         cv2.imshow('SiamMask', im)
         key = cv2.waitKey(1)
         if key > 0:
@@ -77,4 +81,5 @@ if __name__ == '__main__':
         toc += cv2.getTickCount() - tic
     toc /= cv2.getTickFrequency()
     fps = f / toc
-    print('SiamMask Time: {:02.1f}s Speed: {:3.1f}fps (with visulization!)'.format(toc, fps))
+    print('SiamMask Time: {:02.1f}s Speed: {:3.1f}fps (with visulization!)'.format(
+        toc, fps))

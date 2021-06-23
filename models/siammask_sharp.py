@@ -190,6 +190,7 @@ class ResDownS(nn.Module):
     def forward(self, x):
         # x.size() -- torch.Size([1, 1024, 15, 15])
         x = self.downsample(x)
+        # (Pdb) pp x.size() -- torch.Size([1, 256, 15, 15])
         if x.size(3) < 20:
             l = 4
             r = -4
@@ -198,9 +199,9 @@ class ResDownS(nn.Module):
         return x
 
 
-class ResDown(nn.Module):
+class ResnetDown(nn.Module):
     def __init__(self, pretrain=False):
-        super(ResDown, self).__init__()
+        super(ResnetDown, self).__init__()
         self.features = resnet50(layer3=True, layer4=False)
         # if pretrain:
         #     load_pretrain(self.features, 'resnet.model')
@@ -218,16 +219,9 @@ class ResDown(nn.Module):
 
         return output, p3
 
-    # def forward_all(self, x):
-    #     # (Pdb) x.size() -- torch.Size([1, 3, 255, 255])
-    #     output = self.features(x)
-    #     p3 = self.downsample(output[-1])
-    #     return output, p3
-
-
-class UP(nn.Module):
+class RPN(nn.Module):
     def __init__(self, anchor_num=5, feature_in=256, feature_out=256):
-        super(UP, self).__init__()
+        super(RPN, self).__init__()
 
         self.anchor_num = anchor_num
         self.feature_in = feature_in
@@ -314,10 +308,11 @@ class Refine(nn.Module):
         p2 = F.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
 
         # pos = (12, 12)
-        if not(pos is None):
-            p3 = corr_feature[:, :, pos[0], pos[1]].view(-1, 256, 1, 1)
-        else:
-            p3 = corr_feature.permute(0, 2, 3, 1).contiguous().view(-1, 256, 1, 1)
+        # if not(pos is None):
+        #     p3 = corr_feature[:, :, pos[0], pos[1]].view(-1, 256, 1, 1)
+        # else:
+        #     p3 = corr_feature.permute(0, 2, 3, 1).contiguous().view(-1, 256, 1, 1)
+        p3 = corr_feature[:, :, pos[0], pos[1]].view(-1, 256, 1, 1)
 
         out = self.deconv(p3)
         out = self.post0(F.interpolate(self.h2(out) + self.v2(p2), size=(31, 31)))
@@ -333,14 +328,6 @@ def generate_anchor(cfg, score_size):
 
     anchors = Anchors(cfg)
     anchor = anchors.anchors
-
-    # (Pdb) anchor == anchors.anchors
-    # array([[-52., -16.,  52.,  16.],
-    #        [-44., -20.,  44.,  20.],
-    #        [-32., -32.,  32.,  32.],
-    #        [-20., -40.,  20.,  40.],
-    #        [-16., -48.,  16.,  48.]], dtype=float32)
-    # (Pdb) anchors.anchors.shape -- (5, 4)
 
     x1, y1, x2, y2 = anchor[:, 0], anchor[:, 1], anchor[:, 2], anchor[:, 3]
     anchor = np.stack([(x1+x2)*0.5, (y1+y2)*0.5, x2-x1, y2-y1], 1)
@@ -376,6 +363,7 @@ def generate_anchor(cfg, score_size):
     #        [ 96.,  96.,  32.,  96.]], dtype=float32)
     # (Pdb) anchor.shape
     # (3125, 4)
+    # anchor[0] -- array([-96., -96., 104.,  32.], (x, y, w, h) ?
 
     return anchor
 
@@ -396,16 +384,20 @@ class SiameseTracker(nn.Module):
         #        [ 88.,  96.,  32.,  96.],
         #        [ 96.,  96.,  32.,  96.]], dtype=float32)}
 
-        self.rpn_model = UP(anchor_num=self.anchor_num, feature_in=256, feature_out=256)
+        self.rpn_model = RPN(anchor_num=self.anchor_num, feature_in=256, feature_out=256)
 
         self.instance_size = 255    # for search size
         self.template_size = 127
         self.penalty_k = 0.04
         self.segment_threshold = 0.35
 
-        self.features = ResDown()
+        self.features = ResnetDown()
         self.mask_model = MaskCorr()
         self.refine_model = Refine()
+
+        # torch.jit.script(self.features)
+        # torch.jit.script(self.mask_model)
+        # torch.jit.script(self.refine_model)
 
         window = torch.hamming_window(self.score_size)
         window = window.view(self.score_size, 1) * window.view(1, self.score_size)
@@ -415,9 +407,12 @@ class SiameseTracker(nn.Module):
         # Set standard template features
         self.zf = torch.zeros(1, 256, 7, 7)
 
-        # Reasonable height/width ?
+        # Reasonable setting ?
         self.image_height = 256
         self.image_width = 256
+        self.background = torch.zeros([0, 0, 0])
+        self.full_feature = None
+        self.corr_feature = None
 
     def set_image_size(self, h, w):
         self.image_height = h
@@ -427,18 +422,22 @@ class SiameseTracker(nn.Module):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
         _, self.zf = self.features(template)
 
+    def set_background(self, bgcolor):
+        self.background = bgcolor
+
     def track_mask(self, search):
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
-        self.feature, self.search = self.features(search)
+        self.full_feature, self.search = self.features(search)
         # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
         rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, self.search)
-
 
         self.corr_feature = self.mask_model.mask.forward_corr(self.zf, self.search)
         pred_mask = self.mask_model.mask.head(self.corr_feature)
 
+        # self.corr_feature, pred_mask = self.mask_model(self.zf, self.search)
+
         return rpn_pred_cls, rpn_pred_loc, pred_mask
 
     def track_refine(self, pos):
-        pred_mask = self.refine_model(self.feature, self.corr_feature, pos=pos)
+        pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
         return pred_mask
