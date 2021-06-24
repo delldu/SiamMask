@@ -188,26 +188,27 @@ def TrackingDoing(model, im, device='cpu'):
 
     def crop_back(mask, bbox, padding=-1):
         """
+        https://github.com/jwyang/faster-rcnn.pytorch/blob/master/lib/model/utils/net_utils.py        
         affine input: (x1,y1,x2,y2)
-        [  x2-x1             x1 + x2 - w + 1  ]
+        [  x2-x1             x1 + x2 - W + 1  ]
         [  -----      0      ---------------  ]
-        [  w - 1                  w - 1       ]
+        [  W - 1                  W - 1       ]
         [                                     ]
-        [           y2-y1    y1 + y2 - h + 1  ]
+        [           y2-y1    y1 + y2 - H + 1  ]
         [    0      -----    ---------------  ]
-        [           h - 1         h - 1      ]
+        [           H - 1         H - 1      ]
         """
         x1 = bbox[0]
         y1 = bbox[1]
         x2 = bbox[0] + bbox[2]
         y2 = bbox[1] + bbox[3]
-        w = mask.shape[0] # mask width
-        h = mask.shape[1] # mask height
-        ta = (x2 - x1)/(w - 1)
-        tc = (x1 + x2 - w + 1)/(w - 1)
-        tb = (y2 - y1)/(h - 1)
-        td = (y1 + y2 - h + 1)/(h - 1)
-        theta = torch.FloatTensor([[ta, 0, tc], [0, tb, td]]).unsqueeze(0)
+        W = mask.shape[0] # mask width
+        H = mask.shape[1] # mask height
+        a = (x2 - x1)/(W - 1)
+        c = (x1 + x2 - W + 1)/(W - 1)
+        b = (y2 - y1)/(H - 1)
+        d = (y1 + y2 - H + 1)/(H - 1)
+        theta = torch.FloatTensor([[a, 0, c], [0, b, d]]).unsqueeze(0)
 
         H = int(model.image_height)
         W = int(model.image_width)
@@ -228,7 +229,7 @@ def TrackingDoing(model, im, device='cpu'):
         #                       flags=cv2.INTER_LINEAR,
         #                       borderMode=cv2.BORDER_CONSTANT,
         #                       borderValue=padding)
-        return crop
+        # return crop
 
     s = target_e / model.instance_size
     # e-target center: x, y format
