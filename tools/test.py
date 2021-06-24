@@ -159,35 +159,26 @@ def TrackingDoing(model, im, device='cpu'):
         sz2 = (w + pad) * (h + pad)
         return np.sqrt(sz2)
 
-    # size penalty
-
+    # Size penalty
+    # For scale_x=model.template_size/target_e, so template_h/w is virtual template size
     template_h = model.target_h * scale_x
     template_w = model.target_w * scale_x
     bbox_h = bbox[3, :]
     bbox_w = bbox[2, :]
     s_c = change(sz(bbox_w, bbox_h) / (sz(template_h, template_w)))  # scale penalty
-    r_c = change((template_w / template_h) / (bbox_w / bbox_h))  # ratio penalty
-    penalty_k = 0.04
-    penalty = np.exp(-(r_c * s_c - 1) * penalty_k)
+    r_c = change(model.target_w / model.target_h) / (bbox_w / bbox_h)  # ratio penalty
+    penalty = np.exp(-(r_c * s_c - 1) * 0.04)  #penalty_k == 0.04
     penalty_score = penalty * score
 
-    # window_influence -- 0.4
+    # Smooth penalty score ...
     window_influence = 0.4
     penalty_score = penalty_score * (1 - window_influence) + model.window.numpy() * window_influence
 
-    # pdb.set_trace()
     best_id = np.argmax(penalty_score)
     lr = penalty[best_id] * score[best_id]  # lr for OTB
 
     # bbox format: x, y, w, h
-    # update model target via prediction
     best_bbox = bbox[:, best_id] / scale_x
-
-    model.set_target(model.target_rc + best_bbox[1], 
-                    model.target_cc + best_bbox[0],
-                    model.target_h * (1 - lr) + best_bbox[3] * lr,
-                    model.target_w * (1 - lr) + best_bbox[2] * lr)
-    model.target_clamp()
 
     # for Mask Branch
     best_anchor = np.unravel_index(best_id, (model.anchor_num, model.score_size, model.score_size))
@@ -198,10 +189,9 @@ def TrackingDoing(model, im, device='cpu'):
         model.template_size, model.template_size).cpu().data.numpy()
     #  pp anchor_r, anchor_c -- (13, 12), mask.shape -- (127, 127)
 
-    # out_sz -- (model.image_width, model.image_height)
-    def crop_back(mask, bbox, out_sz, padding=-1):
-        W = out_sz[0]
-        H = out_sz[1]
+    def crop_back(mask, bbox, padding=-1):
+        H = int(model.image_height)
+        W = int(model.image_width)
 
         a = W / bbox[2]   # width
         b = H / bbox[3]   # height
@@ -234,7 +224,7 @@ def TrackingDoing(model, im, device='cpu'):
         # return output
 
         mapping = np.array([[a, 0, c], [0, b, d]]).astype(np.float)
-        crop = cv2.warpAffine(mask, mapping, (out_sz[0], out_sz[1]),
+        crop = cv2.warpAffine(mask, mapping, (W, H),
                               flags=cv2.INTER_LINEAR,
                               borderMode=cv2.BORDER_CONSTANT,
                               borderValue=padding)
@@ -248,20 +238,40 @@ def TrackingDoing(model, im, device='cpu'):
         return crop
 
     # model.instance_size -- 255
+    # s = target_e / model.instance_size
+    # # Floating target e box ...
+    # # anchor is vitural instance, delta r, c
+    # dr = model.target_rc - round(target_e) / 2 \
+    #      + s * (anchor_r - model.anchors["base_size"] / 2) * model.anchors["stride"]
+    # dc = model.target_cc - round(target_e) / 2 \
+    #      + s * (anchor_c - model.anchors["base_size"] / 2) * model.anchors["stride"]
+    # s = model.instance_size / target_e
+    # back_box = [-dr * s, -dc * s, model.image_width * s, model.image_height * s]
+
+
     s = target_e / model.instance_size
-    e_box = [model.target_cc - round(target_e) / 2, model.target_rc - round(target_e) / 2, round(target_e), round(target_e)]
-    # (Pdb) e_box -- [-69.0, -219.0, 918, 918]
-    s_box = [e_box[0] + (anchor_c - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
-               e_box[1] + (anchor_r - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
+    crop_box = [model.target_cc - target_e/2, model.target_rc - target_e/2, target_e, target_e]
+
+    sub_box = [crop_box[0] + (anchor_c - model.anchors["base_size"] / 2) * model.anchors["stride"] * s,
+               crop_box[1] + (anchor_r - model.anchors["base_size"] /
+                              2) * model.anchors["stride"] * s,
                s * model.template_size, s * model.template_size]
 
-    s = model.instance_size / target_e
-    back_box = [-s_box[0] * s, -s_box[1] * s, model.image_width * s, model.image_height * s]
+    s = model.template_size / sub_box[2]
+    back_box = [-sub_box[0] * s, -sub_box[1] * s,
+                model.image_width * s, model.image_height * s]
 
-    mask_in_img = crop_back(mask, back_box, (model.image_width, model.image_height))
+    mask_in_img = crop_back(mask, back_box)
     # mask.shape -- (127, 127)
     # (Pdb) back_box -- [-44.8, -3.1, 237.2, 133.3]
     # (Pdb) mask_in_img.shape -- (480, 854)
     target_mask = (mask_in_img > model.segment_threshold).astype(np.uint8)
+
+    # Update model target
+    model.set_target(model.target_rc + best_bbox[1], 
+                    model.target_cc + best_bbox[0],
+                    model.target_h * (1 - lr) + best_bbox[3] * lr,
+                    model.target_w * (1 - lr) + best_bbox[2] * lr)
+    model.target_clamp()
 
     return target_mask
