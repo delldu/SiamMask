@@ -235,8 +235,10 @@ def TrackingDoing(model, im, device='cpu'):
     # e-target center: x, y format
     e_center = [model.target_cc - target_e/2, model.target_rc - target_e/2]
     # Anchor e_box center
-    anchor_dr = (anchor_r - model.anchors["base_size"] / 2) * model.anchors["stride"]
-    anchor_dc = (anchor_c - model.anchors["base_size"] / 2) * model.anchors["stride"]
+    base_size = model.config["base_size"]
+    config_stride = model.config["stride"]
+    anchor_dr = (anchor_r - base_size / 2) * config_stride
+    anchor_dc = (anchor_c - base_size / 2) * config_stride
     # Foreground box
     fg_box = [e_center[0] + anchor_dc * s, e_center[1] + anchor_dr * s, 
             s * model.template_size, s * model.template_size]

@@ -6,14 +6,126 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.anchors import Anchors
-from models.rpn import DepthCorr
 import math
 import numpy as np
 
 from typing import Dict, List, Tuple
 
 import pdb
+
+
+class Anchors:
+    def __init__(self, cfg):
+        self.stride = 8
+        self.ratios = [0.33, 0.5, 1, 2, 3]
+        self.scales = [8]
+        self.anchor_density = 1
+
+        self.__dict__.update(cfg)
+
+        self.anchor_num = len(self.scales) * len(self.ratios) * (self.anchor_density**2)
+        self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32)  # in single position (anchor_num*4)
+        self.generate_anchors()
+        # pdb.set_trace()
+
+    def generate_anchors(self):
+        size = self.stride * self.stride
+        count = 0
+        anchors_offset = self.stride / self.anchor_density
+        anchors_offset = np.arange(self.anchor_density)*anchors_offset
+        anchors_offset = anchors_offset - np.mean(anchors_offset)
+        x_offsets, y_offsets = np.meshgrid(anchors_offset, anchors_offset)
+
+        for x_offset, y_offset in zip(x_offsets.flatten(), y_offsets.flatten()):
+            for r in self.ratios:
+                ws = int(math.sqrt(size*1. / r))
+                hs = int(ws * r)
+
+                for s in self.scales:
+                    w = ws * s
+                    h = hs * s
+                    self.anchors[count][:] = [-w*0.5+x_offset, -h*0.5+y_offset, w*0.5+x_offset, h*0.5+y_offset][:]
+                    count += 1
+
+
+
+def conv2d_dw_group(x, kernel):
+    # x.size(), kernel.size() --(torch.Size([1, 256, 29, 29]), torch.Size([1, 256, 5, 5]))
+    batch, channel = kernel.shape[:2]
+    x = x.view(1, batch*channel, x.size(2), x.size(3))  # 1 * (b*c) * k * k
+    kernel = kernel.view(batch*channel, 1, kernel.size(2), kernel.size(3))  # (b*c) * 1 * H * W
+    out = F.conv2d(x, kernel, groups=batch*channel)
+    out = out.view(batch, channel, out.size(2), out.size(3))
+    # pp out.size() -- torch.Size([1, 256, 25, 25])
+    return out
+
+
+class DepthCorr(nn.Module):
+    def __init__(self, in_channels, hidden, out_channels, kernel_size=3):
+        super(DepthCorr, self).__init__()
+        # adjust layer for asymmetrical features
+        self.conv_kernel = nn.Sequential(
+                nn.Conv2d(in_channels, hidden, kernel_size=kernel_size, bias=False),
+                nn.BatchNorm2d(hidden),
+                nn.ReLU(inplace=True),
+                )
+        self.conv_search = nn.Sequential(
+                nn.Conv2d(in_channels, hidden, kernel_size=kernel_size, bias=False),
+                nn.BatchNorm2d(hidden),
+                nn.ReLU(inplace=True),
+                )
+
+        self.head = nn.Sequential(
+                nn.Conv2d(hidden, hidden, kernel_size=1, bias=False),
+                nn.BatchNorm2d(hidden),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(hidden, out_channels, kernel_size=1)
+                )
+        # (Pdb) a
+        # self = DepthCorr(
+        #   (conv_kernel): Sequential(
+        #     (0): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), bias=False)
+        #     (1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        #     (2): ReLU(inplace=True)
+        #   )
+        #   (conv_search): Sequential(
+        #     (0): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), bias=False)
+        #     (1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        #     (2): ReLU(inplace=True)
+        #   )
+        #   (head): Sequential(
+        #     (0): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        #     (1): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        #     (2): ReLU(inplace=True)
+        #     (3): Conv2d(256, 10, kernel_size=(1, 1), stride=(1, 1))
+        #   )
+        # )
+        # in_channels = 256
+        # hidden = 256
+        # out_channels = 10
+        # kernel_size = 3
+
+
+    def forward_corr(self, kernel, input):
+        # (Pdb) kernel.size(), input.size() -- (torch.Size([1, 256, 7, 7]), torch.Size([1, 256, 31, 31]))
+        kernel = self.conv_kernel(kernel)
+        input = self.conv_search(input)
+        feature = conv2d_dw_group(input, kernel)
+        # (Pdb) feature.size() -- torch.Size([1, 256, 25, 25])
+        return feature
+
+    def forward(self, kernel, search):
+        # (Pdb) kernel.size() -- torch.Size([1, 256, 7, 7])
+        # (Pdb) search.size() -- torch.Size([1, 256, 31, 31])
+
+        # corr_feature
+        feature = self.forward_corr(kernel, search)
+        # feature.size() -- torch.Size([1, 256, 25, 25])
+        out = self.head(feature)
+        # (Pdb) out.size() -- torch.Size([1, 10, 25, 25])
+
+        return feature, out
+
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -319,7 +431,7 @@ class Refine(nn.Module):
 
 
 def generate_anchor(cfg, score_size):
-    # cfg = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'round_dight': 0}
+    # cfg = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8]}
     # score_size = 25
 
     anchors = Anchors(cfg)
@@ -367,11 +479,11 @@ def generate_anchor(cfg, score_size):
 class SiameseTracker(nn.Module):
     def __init__(self):
         super(SiameseTracker, self).__init__()
-        self.anchors = {'stride': 8, 'ratios': [0.25, 0.5, 1, 2, 4], 'scales': [8], 'base_size': 8}
+        self.config = {'stride': 8, 'ratios': [0.25, 0.5, 1, 2, 4], 'scales': [8], 'base_size': 8}
 
-        self.anchor_num = len(self.anchors["ratios"]) * len(self.anchors["scales"])
+        self.anchor_num = len(self.config["ratios"]) * len(self.config["scales"])
         self.score_size = 25
-        self.anchor = generate_anchor(self.anchors, self.score_size)
+        self.anchor = generate_anchor(self.config, self.score_size)
         # 'anchor': array([[-96., -96., 104.,  32.],
         #        [-88., -96., 104.,  32.],
         #        [-80., -96., 104.,  32.],
@@ -483,3 +595,5 @@ class SiameseTracker(nn.Module):
         score = score.permute(1, 2, 3, 0).contiguous().view(2, -1).permute(1, 0)
         score = F.softmax(score, dim=1).data[:, 1].cpu().numpy()
         return score
+
+
