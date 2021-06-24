@@ -384,7 +384,6 @@ class SiameseTracker(nn.Module):
 
         self.instance_size = 255    # for search size
         self.template_size = 127
-        self.penalty_k = 0.04
         self.segment_threshold = 0.35
 
         self.features = ResnetDown()
@@ -438,6 +437,16 @@ class SiameseTracker(nn.Module):
         self.target_h = h
         self.target_w = w
 
+    def target_clamp(self):
+        # if self.target_rc > model.image_height:
+        #     self.target_rc = model.image_height
+
+        # model.target_rc = max(0, min(model.image_height, model.target_rc))
+        # model.target_cc = max(0, min(model.image_width, model.target_cc))
+        # model.target_h = max(10, min(model.image_height, model.target_h))
+        # model.target_w = max(10, min(model.image_width, model.target_w))
+        pass
+
 
     def set_template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
@@ -453,12 +462,11 @@ class SiameseTracker(nn.Module):
             self.full_feature, self.search = self.features(search)
             # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
             rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, self.search)
+            self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, self.search)
 
-            self.corr_feature, pred_mask = self.mask_model(self.zf, self.search)
-
-        return rpn_pred_cls, rpn_pred_loc, pred_mask
+        return rpn_pred_cls, rpn_pred_loc, rpn_pred_mask
 
     def track_refine(self, pos):
         with torch.no_grad():
-            pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
-        return pred_mask
+            rpn_pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
+        return rpn_pred_mask.sigmoid()

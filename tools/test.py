@@ -63,7 +63,7 @@ def im_to_torch(img):
 
 def get_range_pad(y, d, maxy):
     y1 = round(y - d/2)
-    y2 = y1 + d - 1
+    y2 = round(y1 + d - 1)
 
     pad1 = max(0, -y1)
     pad2 = max(0, y2 - maxy + 1)
@@ -74,7 +74,7 @@ def get_range_pad(y, d, maxy):
     return y1, y2, pad1, pad2
 
 
-def get_subwindow(im, target_rc, target_cc, target_size, search_size, avg_chans):
+def get_subwindow(im, target_rc, target_cc, target_size, search_size, bg_color):
     # (Pdb) type(im) -- <class 'numpy.ndarray'>, (Pdb) im.shape -- (480, 854, 3), range: [0, 255], uint8
 
     height, width, chan = im.shape
@@ -85,10 +85,10 @@ def get_subwindow(im, target_rc, target_cc, target_size, search_size, avg_chans)
     big = np.zeros((height + top_pad + bottom_pad, width +
                    left_pad + right_pad, chan), np.uint8)
     big[top_pad:top_pad + height, left_pad:left_pad + width, :] = im
-    # big[0:top_pad, left_pad:left_pad + width, :] = avg_chans
-    big[height + top_pad:, left_pad:left_pad + width, :] = avg_chans
-    # big[:, 0:left_pad, :] = avg_chans
-    big[:, width + left_pad:, :] = avg_chans
+    # big[0:top_pad, left_pad:left_pad + width, :] = bg_color
+    big[height + top_pad:, left_pad:left_pad + width, :] = bg_color
+    # big[:, 0:left_pad, :] = bg_color
+    big[:, width + left_pad:, :] = bg_color
 
     patch = im_to_torch(big[y1:y2 + 1, x1:x2 + 1, :])
 
@@ -107,34 +107,29 @@ def TrackingStart(model, im, device='cpu'):
     # (Pdb) type(im), im.min(), im.max(), im.shape
     # (<class 'numpy.ndarray'>, 0, 255, (480, 854, 3))
 
-    state = dict()
-
     model.set_image_size(im.shape[0], im.shape[1])
 
-    avg_chans = np.mean(im, axis=(0, 1))
-    model.set_background(avg_chans)
+    bg_color = np.mean(im, axis=(0, 1))
+    model.set_background(bg_color)
+    # array([ 96.94782641, 114.56385148, 141.78324551])
 
     # x = torch.from_numpy(im)
-    # avg_chans = x.mean(dim = 0, keepdim=False).mean(dim = 0, keepdim=False)
+    # bg_color = x.mean(dim = 0, keepdim=False).mean(dim = 0, keepdim=False)
 
-    s_z = round(get_scale_size(model.target_h, model.target_w))
+    s_z = get_scale_size(model.target_h, model.target_w)
 
     # initialize the exemplar
 
-    z_crop = get_subwindow(im, model.target_rc, model.target_cc, model.template_size, s_z, avg_chans)
+    z_crop = get_subwindow(im, model.target_rc, model.target_cc, model.template_size, s_z, bg_color)
 
     # (Pdb) pp z_crop.shape -- torch.Size([1, 3, 127, 127]), format range: [0, 255]
 
     model.set_template(z_crop.to(device))
 
-    # (Pdb) avg_chans
-    # array([ 96.94782641, 114.56385148, 141.78324551])
-
-    return state
 
 
-def TrackingDoing(model, state, im, device='cpu'):
-    avg_chans = model.background
+def TrackingDoing(model, im, device='cpu'):
+    bg_color = model.background
 
     # mask_enable = True
     s_x = get_scale_size(model.target_h, model.target_w)
@@ -149,28 +144,28 @@ def TrackingDoing(model, state, im, device='cpu'):
     crop_box = [model.target_cc - round(s_x) / 2, model.target_rc - round(s_x) / 2, round(s_x), round(s_x)]
     # (Pdb) crop_box -- [-69.0, -219.0, 918, 918]
 
-    x_crop = get_subwindow(im, model.target_rc, model.target_cc, model.instance_size, round(s_x), avg_chans)
+    x_crop = get_subwindow(im, model.target_rc, model.target_cc, model.instance_size, round(s_x), bg_color)
     # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
 
     score, delta, mask = model.track_mask(x_crop.to(device))
     # score.size()-- (torch.Size([1, 10, 25, 25]),
-    # delta.size() -- torch.Size([1, 20, 25, 25])
     # mask.size() --  torch.Size([1, 3969, 25, 25]))
 
-    delta = delta.permute(1, 2, 3, 0).contiguous().view(
-        4, -1).data.cpu().numpy()
+    # delta.size() -- torch.Size([1, 20, 25, 25])
+    delta = delta.permute(1, 2, 3, 0).contiguous().view(4, -1).data.cpu().numpy()
+    # delta.shape -- (4, 3125)
+    delta[0, :] = delta[0, :] * model.anchor[:, 2] + model.anchor[:, 0] # x
+    delta[1, :] = delta[1, :] * model.anchor[:, 3] + model.anchor[:, 1] # y
+    delta[2, :] = np.exp(delta[2, :]) * model.anchor[:, 2]  # w
+    delta[3, :] = np.exp(delta[3, :]) * model.anchor[:, 3]  # h
+
+
     # score = F.softmax(score.permute(1, 2, 3, 0).contiguous().view(2, -1).permute(1, 0), dim=1).data[:,
     #         1].cpu().numpy()
     score = score.view(2, -1).data[1].cpu()
     score = F.softmax(score, dim=0).numpy()
 
-    # delta.shape -- (4, 3125)
     # score.shape -- (3125,)
-
-    delta[0, :] = delta[0, :] * model.anchor[:, 2] + model.anchor[:, 0]
-    delta[1, :] = delta[1, :] * model.anchor[:, 3] + model.anchor[:, 1]
-    delta[2, :] = np.exp(delta[2, :]) * model.anchor[:, 2]
-    delta[3, :] = np.exp(delta[3, :]) * model.anchor[:, 3]
 
     def change(r):
         return np.maximum(r, 1. / r)
@@ -181,39 +176,44 @@ def TrackingDoing(model, state, im, device='cpu'):
         return np.sqrt(sz2)
 
     # size penalty
-    target_sz_in_crop_h = model.target_h * scale_x
-    target_sz_in_crop_w = model.target_w * scale_x
-    # s_c = change(sz(delta[2, :], delta[3, :]) / (sz_wh(target_sz_in_crop)))  # scale penalty
-    s_c = change(sz(delta[2, :], delta[3, :]) / (sz(target_sz_in_crop_h, target_sz_in_crop_w)))  # scale penalty
-    r_c = change((target_sz_in_crop_w / target_sz_in_crop_h) / (delta[2, :] / delta[3, :]))  # ratio penalty
 
-    # p.penalty_k -- 0.04
-    penalty = np.exp(-(r_c * s_c - 1) * model.penalty_k)
-    pscore = penalty * score
+    template_h = model.target_h * scale_x
+    template_w = model.target_w * scale_x
+    bbox_h = delta[3, :]
+    bbox_w = delta[2, :]
+    s_c = change(sz(bbox_w, bbox_h) / (sz(template_h, template_w)))  # scale penalty
+    r_c = change((template_w / template_h) / (bbox_w / bbox_h))  # ratio penalty
+    penalty_k = 0.04
+    penalty = np.exp(-(r_c * s_c - 1) * penalty_k)
+    penalty_score = penalty * score
 
-    # pp p.window_influence -- 0.4
+    # window_influence -- 0.4
     window_influence = 0.4
-    pscore = pscore * (1 - window_influence) + model.window.numpy() * window_influence
+    penalty_score = penalty_score * (1 - window_influence) + model.window.numpy() * window_influence
 
-    best_id = np.argmax(pscore)
-
+    # pdb.set_trace()
+    best_id = np.argmax(penalty_score)
     pred_in_crop = delta[:, best_id] / scale_x
     lr = penalty[best_id] * score[best_id]  # lr for OTB
 
     # bbox format: x, y, w, h
     # update model target pos, size via prediction
-    model.target_rc += pred_in_crop[1]
-    model.target_cc += pred_in_crop[0]
+    model.target_rc += pred_in_crop[1]  # y
+    model.target_cc += pred_in_crop[0]  # x
     model.target_w = model.target_w * (1 - lr) + pred_in_crop[2] * lr
     model.target_h = model.target_h * (1 - lr) + pred_in_crop[3] * lr
 
+    model.target_rc = max(0, min(model.image_height, model.target_rc))
+    model.target_cc = max(0, min(model.image_width, model.target_cc))
+    model.target_h = max(10, min(model.image_height, model.target_h))
+    model.target_w = max(10, min(model.image_width, model.target_w))
 
     # for Mask Branch
     best_id_mask = np.unravel_index(best_id, (5, model.score_size, model.score_size))
     delta_y, delta_x = best_id_mask[1], best_id_mask[2]
 
     # pp model.template_size -- 127
-    mask = model.track_refine((delta_y, delta_x)).to(device).sigmoid().squeeze().view(
+    mask = model.track_refine((delta_y, delta_x)).to(device).squeeze().view(
         model.template_size, model.template_size).cpu().data.numpy()
     #  pp delta_y, delta_x -- (13, 12), mask.shape -- (127, 127)
 
@@ -278,22 +278,10 @@ def TrackingDoing(model, state, im, device='cpu'):
     back_box = [-sub_box[0] * s, -sub_box[1] * s,
                 model.image_width * s, model.image_height * s]
 
-    mask_in_img = crop_back(
-        mask, back_box, (model.image_width, model.image_height))
+    mask_in_img = crop_back(mask, back_box, (model.image_width, model.image_height))
     # mask.shape -- (127, 127)
     # (Pdb) back_box -- [-44.8, -3.1, 237.2, 133.3]
-    # (Pdb) mask_in_img.shape -- (480, 854), here (480 -- state['image_height'], 854 -- width)
+    # (Pdb) mask_in_img.shape -- (480, 854)
     target_mask = (mask_in_img > model.segment_threshold).astype(np.uint8)
 
-
-    # Update for next prediction
-    model.target_rc = max(0, min(model.image_height, model.target_rc))
-    model.target_cc = max(0, min(model.image_width, model.target_cc))
-    model.target_h = max(10, min(model.image_height, model.target_h))
-    model.target_w = max(10, min(model.image_width, model.target_w))
-
-    state['score'] = score[best_id]
-    state['mask'] = target_mask
-
-    # state['ploygon'] = rbox_in_img
-    return state
+    return target_mask

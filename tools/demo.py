@@ -57,15 +57,13 @@ if __name__ == '__main__':
     x, y, h, w = 300, 100, 280, 180
     siammask.set_target(y + h/2, x + w/2, h, w)
 
-    state = TrackingStart(siammask, ims[0], device=device)  # init tracker
+    TrackingStart(siammask, ims[0], device=device)  # init tracker
 
     toc = 0
     for f, im in enumerate(ims):
         tic = cv2.getTickCount()
-        state = TrackingDoing(siammask, state, im, device=device)  # track
-        # (Pdb) pp state.keys() -- dict_keys('score', 'mask')
 
-        mask = state['mask']
+        mask = TrackingDoing(siammask, im, device=device)  # track
 
         # BGR format !!!
         im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
