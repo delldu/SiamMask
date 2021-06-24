@@ -367,7 +367,7 @@ def generate_anchor(cfg, score_size):
 class SiameseTracker(nn.Module):
     def __init__(self):
         super(SiameseTracker, self).__init__()
-        self.anchors = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8], 'base_size': 8}
+        self.anchors = {'stride': 8, 'ratios': [0.25, 0.5, 1, 2, 4], 'scales': [8], 'base_size': 8}
 
         self.anchor_num = len(self.anchors["ratios"]) * len(self.anchors["scales"])
         self.score_size = 25
@@ -438,15 +438,10 @@ class SiameseTracker(nn.Module):
         self.target_w = w
 
     def target_clamp(self):
-        # if self.target_rc > model.image_height:
-        #     self.target_rc = model.image_height
-
-        # model.target_rc = max(0, min(model.image_height, model.target_rc))
-        # model.target_cc = max(0, min(model.image_width, model.target_cc))
-        # model.target_h = max(10, min(model.image_height, model.target_h))
-        # model.target_w = max(10, min(model.image_width, model.target_w))
-        pass
-
+        self.target_rc = max(0, min(self.image_height, self.target_rc))
+        self.target_cc = max(0, min(self.image_width, self.target_cc))
+        self.target_h = max(10, min(self.image_height, self.target_h))
+        self.target_w = max(10, min(self.image_width, self.target_w))
 
     def set_template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
@@ -463,10 +458,28 @@ class SiameseTracker(nn.Module):
             # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
             rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, self.search)
             self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, self.search)
+        
+        rpn_pred_score = self.convert_score(rpn_pred_cls)
+        rpn_pred_bbox = self.convert_bbox(rpn_pred_loc)
 
-        return rpn_pred_cls, rpn_pred_loc, rpn_pred_mask
+        return rpn_pred_score, rpn_pred_bbox, rpn_pred_mask
 
     def track_refine(self, pos):
         with torch.no_grad():
             rpn_pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
         return rpn_pred_mask.sigmoid()
+
+    def convert_bbox(self, delta):
+        delta = delta.permute(1, 2, 3, 0).contiguous().view(4, -1)
+        delta = delta.data.cpu().numpy()
+
+        delta[0, :] = delta[0, :] * self.anchor[:, 2] + self.anchor[:, 0] # x
+        delta[1, :] = delta[1, :] * self.anchor[:, 3] + self.anchor[:, 1] # y
+        delta[2, :] = np.exp(delta[2, :]) * self.anchor[:, 2]    # w
+        delta[3, :] = np.exp(delta[3, :]) * self.anchor[:, 3]    # h
+        return delta
+
+    def convert_score(self, score):
+        score = score.permute(1, 2, 3, 0).contiguous().view(2, -1).permute(1, 0)
+        score = F.softmax(score, dim=1).data[:, 1].cpu().numpy()
+        return score
