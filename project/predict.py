@@ -18,32 +18,32 @@ import torchvision.transforms as transforms
 from PIL import Image
 from tqdm import tqdm
 
-from model import get_model, model_device
+from model import get_model, model_device, model_setenv
 
 if __name__ == "__main__":
     """Predict."""
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--checkpoint', type=str, default="models/image_siammask.pth", help="checkpint file")
-    parser.add_argument('--input', type=str, default="tennis/*.png", help="input image")
+    parser.add_argument('--input', type=str, default="tennis/*.jpg", help="input image")
     parser.add_argument('-o', '--output', type=str, default="output", help="output folder")
 
     args = parser.parse_args()
     if not os.path.exists(args.output):
         os.makedirs(args.output)
 
+    totensor = transforms.ToTensor()
+    toimage = transforms.ToPILImage()
+
+    model_setenv()
     model = get_model(args.checkpoint)
     device = model_device()
     model = model.to(device)
     model.eval()
 
     print(model)
-    pdb.set_trace()
 
-    totensor = transforms.ToTensor()
-    toimage = transforms.ToPILImage()
-
-    image_filenames = glob.glob(args.input)
+    image_filenames = sorted(glob.glob(args.input))
     progress_bar = tqdm(total = len(image_filenames))
 
     for index, filename in enumerate(image_filenames):
@@ -52,7 +52,19 @@ if __name__ == "__main__":
         image = Image.open(filename).convert("RGB")
         input_tensor = totensor(image).unsqueeze(0).to(device)
 
-        with torch.no_grad():
-            output_tensor = model(input_tensor).clamp(0, 1.0).squeeze()
+        input_tensor = input_tensor * 255.0
 
-        toimage(output_tensor.cpu()).save("{}/{}".format(args.output, os.path.basename(filename)))
+        if index == 0:
+            x, y, h, w = 300, 100, 280, 180
+            r, c = y + h/2, x + w/2
+            model.set_reference(input_tensor, r, c, h, w)
+            continue
+        else:
+            with torch.no_grad():
+                mask = model(input_tensor).squeeze()
+
+            input_tensor[:, 0, :, :] = (mask > 0) * 255.0 + (mask == 0) * input_tensor[:, 0, :, :]
+
+        input_tensor = input_tensor / 255.0
+
+        toimage(input_tensor.squeeze(0).cpu()).save("{}/{}".format(args.output, os.path.basename(filename)))

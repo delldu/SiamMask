@@ -47,9 +47,9 @@ def get_model(checkpoint):
     """Create model."""
 
     model_setenv()
-    model = SiameseTracker()
-    model_load(model, checkpoint)
     device = model_device()
+    model = SiameseTracker(device)
+    model_load(model, checkpoint)
     model.to(device)
 
     return model
