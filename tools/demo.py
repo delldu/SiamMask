@@ -69,6 +69,9 @@ if __name__ == '__main__':
         im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
 
         cv2.imshow('SiamMask', im)
+        if (f == 2):
+            cv2.imwrite("/tmp/a.png", im)
+
         key = cv2.waitKey(1)
         if key > 0:
             break

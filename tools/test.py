@@ -187,51 +187,47 @@ def TrackingDoing(model, im, device='cpu'):
     #  pp anchor_r, anchor_c -- (13, 12), mask.shape -- (127, 127)
 
     def crop_back(mask, bbox, padding=-1):
+        """
+        affine input: (x1,y1,x2,y2)
+        [  x2-x1             x1 + x2 - w + 1  ]
+        [  -----      0      ---------------  ]
+        [  w - 1                  w - 1       ]
+        [                                     ]
+        [           y2-y1    y1 + y2 - h + 1  ]
+        [    0      -----    ---------------  ]
+        [           h - 1         h - 1      ]
+        """
+        x1 = bbox[0]
+        y1 = bbox[1]
+        x2 = bbox[0] + bbox[2]
+        y2 = bbox[1] + bbox[3]
+        w = mask.shape[0] # mask width
+        h = mask.shape[1] # mask height
+        ta = (x2 - x1)/(w - 1)
+        tc = (x1 + x2 - w + 1)/(w - 1)
+        tb = (y2 - y1)/(h - 1)
+        td = (y1 + y2 - h + 1)/(h - 1)
+        theta = torch.FloatTensor([[ta, 0, tc], [0, tb, td]]).unsqueeze(0)
+
         H = int(model.image_height)
         W = int(model.image_width)
+        grid = F.affine_grid(theta, (1, 1, H, W), align_corners=False)
 
-        a = W / bbox[2]   # width
-        b = H / bbox[3]   # height
-        c = -a * bbox[0]    # x
-        d = -b * bbox[1]    # y
+        input = torch.from_numpy(mask).unsqueeze(0).unsqueeze(0)
+        output = F.grid_sample(input, grid, mode='bilinear', align_corners=True, padding_mode="zeros")
+        output = output.squeeze(0).squeeze(0).numpy()
 
-        # Transform matrix:
-        # w-a  0    x-c
-        # 0    h-b  y-d
+        return output
+        # a = W / bbox[2]   # width
+        # b = H / bbox[3]   # height
+        # c = -a * bbox[0]    # x
+        # d = -b * bbox[1]    # y
 
-        # theta = torch.FloatTensor([[1.0/a, 0, -c/W], [0, 1.0/b, -d/H]]).unsqueeze(0)
-        # grid = F.affine_grid(theta, (1, 1, H, W), align_corners=False)
-        # grid_0 = grid[:, :, :, 0]
-        # grid_0 = grid_0 - grid_0.mean()
-        # grid_0 = grid_0/(grid_0.max() + 1e-6)
-
-        # grid_1 = grid[:, :, :, 1]
-        # grid_1 = grid_1 - grid_1.mean()
-        # grid_1 = grid_1/(grid_1.max() + 1e-6)
-
-        # grid = torch.stack((grid_0, grid_1), dim=3)
-
-        # # grid = grid - grid.mean()
-        # # grid = grid/(grid.max() + 1e-6)
-
-        # input = torch.from_numpy(mask).unsqueeze(0).unsqueeze(0)
-        # output = F.grid_sample(input, grid, mode='bilinear', align_corners=True, padding_mode="zeros")
-        # output = output.squeeze(0).squeeze(0).numpy()
-
-        # return output
-
-        mapping = np.array([[a, 0, c], [0, b, d]]).astype(np.float)
-        crop = cv2.warpAffine(mask, mapping, (W, H),
-                              flags=cv2.INTER_LINEAR,
-                              borderMode=cv2.BORDER_CONSTANT,
-                              borderValue=padding)
-
-        # (Pdb) pp mask.shape -- (127, 127)
-        # (Pdb) pp bbox -- [-44.83, -11.16, 237.22, 133.33], x, y, w, h
-        # (Pdb) pp out_sz -- (854, 480) w, h
-        # pp crop.shape -- (480, 854), h, w
-        # ==> (Pdb) pp a, b, c, d -- (3.6, 3.60, 161.4(x?), 40.20)
-
+        # mapping = np.array([[a, 0, c], [0, b, d]]).astype(np.float)
+        # crop = cv2.warpAffine(mask, mapping, (W, H),
+        #                       flags=cv2.INTER_LINEAR,
+        #                       borderMode=cv2.BORDER_CONSTANT,
+        #                       borderValue=padding)
         return crop
 
     s = target_e / model.instance_size
