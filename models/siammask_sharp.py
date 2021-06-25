@@ -345,7 +345,7 @@ class RPN(nn.Module):
         self.cls = DepthCorr(feature_in, feature_out, self.cls_output)
         self.loc = DepthCorr(feature_in, feature_out, self.loc_output)
 
-    def forward(self, z_f, x_f):
+    def forward(self, z_f, x_f)->Tuple[torch.Tensor, torch.Tensor]:
         _, cls = self.cls(z_f, x_f)
         _, loc = self.loc(z_f, x_f)
         return cls, loc
@@ -565,11 +565,10 @@ class SiameseTracker(nn.Module):
 
     def track_mask(self, search):
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
-        with torch.no_grad():
-            self.full_feature, self.search = self.features(search)
-            # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
-            rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, self.search)
-            self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, self.search)
+        self.full_feature, self.search = self.features(search)
+        # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
+        rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, self.search)
+        self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, self.search)
         
         rpn_pred_score = self.convert_score(rpn_pred_cls)
         rpn_pred_bbox = self.convert_bbox(rpn_pred_loc)
@@ -595,5 +594,3 @@ class SiameseTracker(nn.Module):
         score = score.permute(1, 2, 3, 0).contiguous().view(2, -1).permute(1, 0)
         score = F.softmax(score, dim=1).data[:, 1].cpu().numpy()
         return score
-
-

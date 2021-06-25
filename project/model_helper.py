@@ -124,7 +124,7 @@ class DepthCorr(nn.Module):
         # (Pdb) feature.size() -- torch.Size([1, 256, 25, 25])
         return feature
 
-    def forward(self, kernel, search):
+    def forward(self, kernel, search)->Tuple[torch.Tensor, torch.Tensor]:
         # (Pdb) kernel.size() -- torch.Size([1, 256, 7, 7])
         # (Pdb) search.size() -- torch.Size([1, 256, 31, 31])
 
@@ -346,7 +346,7 @@ class RPN(nn.Module):
         self.cls = DepthCorr(feature_in, feature_out, self.cls_output)
         self.loc = DepthCorr(feature_in, feature_out, self.loc_output)
 
-    def forward(self, z_f, x_f):
+    def forward(self, z_f, x_f)->Tuple[torch.Tensor, torch.Tensor]:
         _, cls = self.cls(z_f, x_f)
         _, loc = self.loc(z_f, x_f)
         return cls, loc
@@ -393,12 +393,10 @@ class Refine(nn.Module):
                 if isinstance(l, nn.Conv2d):
                     nn.init.kaiming_uniform_(l.weight, a=1)
 
-    def forward(self, f, corr_feature, pos):
+    def forward(self, f: List[torch.Tensor], corr_feature, anchor_r:int, anchor_c:int):
         # (Pdb) f -- full_feature, type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
         # (<class 'tuple'>, 4, torch.Size([1, 64, 125, 125]), torch.Size([1, 256, 63, 63]), torch.Size([1, 512, 31, 31]), torch.Size([1, 1024, 31, 31]))
         # corr_feature.size() -- torch.Size([1, 256, 25, 25])
-        # (Pdb) pos = anchor_r, anchor_c, type(pos), len(pos), type(pos[0]), type(pos[1])
-        # (<class 'tuple'>, 2, <class 'numpy.int64'>, <class 'numpy.int64'>)
 
         # test = True
         # if test:
@@ -412,16 +410,16 @@ class Refine(nn.Module):
         #     if not (pos is None): p1 = torch.index_select(p1, 0, pos)
         #     p2 = F.unfold(f[2], (15, 15), padding=0, stride=1).permute(0, 2, 1).contiguous().view(-1, 512, 15, 15)
         #     if not (pos is None): p2 = torch.index_select(p2, 0, pos)
-        p0 = F.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
-        p1 = F.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
-        p2 = F.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
+        p0 = F.pad(f[0], [16, 16, 16, 16])[:, :, 4*anchor_r:4*anchor_r + 61, 4*anchor_c:4*anchor_c+61]
+        p1 = F.pad(f[1], [8, 8, 8, 8])[:, :, 2 * anchor_r:2 * anchor_r + 31, 2 * anchor_c:2 * anchor_c + 31]
+        p2 = F.pad(f[2], [4, 4, 4, 4])[:, :, anchor_r:anchor_r + 15, anchor_c:anchor_c + 15]
 
         # pos = (12, 12)
         # if not(pos is None):
         #     p3 = corr_feature[:, :, pos[0], pos[1]].view(-1, 256, 1, 1)
         # else:
         #     p3 = corr_feature.permute(0, 2, 3, 1).contiguous().view(-1, 256, 1, 1)
-        p3 = corr_feature[:, :, pos[0], pos[1]].view(-1, 256, 1, 1)
+        p3 = corr_feature[:, :, anchor_r, anchor_c].view(-1, 256, 1, 1)
 
         out = self.deconv(p3)
         out = self.post0(F.interpolate(self.h2(out) + self.v2(p2), size=(31, 31)))
@@ -571,8 +569,6 @@ class SiameseTracker(nn.Module):
         self.image_height = 256
         self.image_width = 256
         self.background = torch.zeros([0, 0, 0]).to(self.device)
-        self.full_feature: List[torch.Tensor] = []
-        self.corr_feature = None
 
         # rc -- row center, cc -- column center
         self.target_rc = 64
@@ -613,7 +609,7 @@ class SiameseTracker(nn.Module):
         self.image_height = h
         self.image_width = w
 
-    def set_target(self, rc, cc, h, w):
+    def set_target(self, rc:int, cc:int, h:int, w:int):
         self.target_rc = rc
         self.target_cc = cc
         self.target_h = h
@@ -633,26 +629,27 @@ class SiameseTracker(nn.Module):
     def set_background(self, bgcolor):
         self.background = bgcolor
 
-    def track_mask(self, search)->Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def track_mask(self, search)->Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[torch.Tensor], torch.Tensor]:
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
         # xxxx8888
-        self.full_feature, search_feature = self.features(search)
-        # full_feature, search_feature = self.features(search)
+        # self.full_feature, search_feature = self.features(search)
+        full_feature, search_feature = self.features(search)
 
         # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
         rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, search_feature)
 
         # xxxx8888
-        self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
-        # corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
+        # self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
+        corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
         
         rpn_pred_score = self.convert_score(rpn_pred_cls)
         rpn_pred_bbox = self.convert_bbox(rpn_pred_loc)
 
-        return rpn_pred_score, rpn_pred_bbox, rpn_pred_mask
+        return rpn_pred_score, rpn_pred_bbox, rpn_pred_mask, full_feature, corr_feature
 
-    def track_refine(self, pos):
-        rpn_pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
+    def track_refine(self, full_feature: List[torch.Tensor], corr_feature, anchor_r:int, anchor_c:int):
+        rpn_pred_mask = self.refine_model(full_feature, corr_feature, anchor_r, anchor_c)
+        # rpn_pred_mask = rpn_pred_mask.view(self.template_size, self.template_size)
         return rpn_pred_mask.sigmoid()
 
     def convert_bbox(self, delta):
@@ -680,7 +677,7 @@ class SiameseTracker(nn.Module):
 
         return score
 
-    def crop_back(self, mask, bbox, padding=-1):
+    def crop_back(self, mask, bbox:List[int]):
         """
         https://github.com/jwyang/faster-rcnn.pytorch/blob/master/lib/model/utils/net_utils.py        
         affine input: (x1,y1,x2,y2)
@@ -698,11 +695,17 @@ class SiameseTracker(nn.Module):
         y2 = bbox[1] + bbox[3]
         W = mask.shape[0] # mask width
         H = mask.shape[1] # mask height
-        a = (x2 - x1)/(W - 1)
-        c = (x1 + x2 - W + 1)/(W - 1)
-        b = (y2 - y1)/(H - 1)
-        d = (y1 + y2 - H + 1)/(H - 1)
-        theta = torch.FloatTensor([[a, 0, c], [0, b, d]]).unsqueeze(0)
+        a = float((x2 - x1)/(W - 1))
+        c = float((x1 + x2 - W + 1)/(W - 1))
+        b = float((y2 - y1)/(H - 1))
+        d = float((y1 + y2 - H + 1)/(H - 1))
+        # theta = torch.Tensor([[a, 0.0, c], [0.0, b, d]])
+        theta = torch.zeros(2, 3)
+        theta[0][0] = a
+        theta[0][2] = c
+        theta[1][1] = b
+        theta[1][2] = d
+        theta = theta.unsqueeze(0)
 
         H = int(self.image_height)
         W = int(self.image_width)
@@ -734,7 +737,7 @@ class SiameseTracker(nn.Module):
         x_crop = get_subwindow(image, self.target_rc, self.target_cc, self.instance_size, target_e, bg_color)
         # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
 
-        score, bbox, mask = self.track_mask(x_crop)
+        score, bbox, mask, full_feature, corr_feature = self.track_mask(x_crop)
         # score.size()-- (torch.Size([1, 10, 25, 25]),
         # mask.size() --  torch.Size([1, 3969, 25, 25]))
         # bbox.size() -- torch.Size([1, 20, 25, 25])
@@ -742,8 +745,8 @@ class SiameseTracker(nn.Module):
 
         # Size penalty
         # For scale_x=template_size/target_e, so template_h/w is virtual template size
-        template_h = self.target_h * scale_x
-        template_w = self.target_w * scale_x
+        template_h = int(self.target_h * scale_x)
+        template_w = int(self.target_w * scale_x)
         bbox_h = bbox[3, :]
         bbox_w = bbox[2, :]
         s_c = change(sz(bbox_w, bbox_h) / (get_scale_size(template_h, template_w)))  # scale penalty
@@ -762,20 +765,22 @@ class SiameseTracker(nn.Module):
         # best_anchor = np.unravel_index(best_id, (self.anchor_num, self.score_size, self.score_size))
         # anchor_r, anchor_c = best_anchor[1], best_anchor[2]
         left = best_id % (self.score_size * self.score_size)
-        anchor_r = int(left/self.score_size)
-        anchor_c = left % self.score_size
+        anchor_r = int(torch.floor_divide(left, self.score_size))
+        anchor_c = int(left % self.score_size)
 
+        mask = self.track_refine(full_feature, corr_feature, anchor_r, anchor_c)
 
+        mask = mask.view(self.template_size, self.template_size)
 
-        mask = self.track_refine((anchor_r, anchor_c)).view(self.template_size, self.template_size)
         #  pp anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
 
         s = target_e / self.instance_size
         # e-target center: x, y format
         e_center = [self.target_cc - target_e/2, self.target_rc - target_e/2]
         # Anchor e_box center
-        base_size = self.config["base_size"]
-        config_stride = self.config["stride"]
+        # xxxx8888
+        base_size = 8 #self.config["base_size"]
+        config_stride = 8 #self.config["stride"]
         anchor_dr = (anchor_r - base_size / 2) * config_stride
         anchor_dc = (anchor_c - base_size / 2) * config_stride
         # Foreground box
@@ -783,7 +788,7 @@ class SiameseTracker(nn.Module):
                 s * self.template_size, s * self.template_size]
 
         s = self.instance_size / target_e
-        bg_box = [-fg_box[0] * s, -fg_box[1] * s, self.image_width * s, self.image_height * s]
+        bg_box = [int(-fg_box[0] * s), int(-fg_box[1] * s), int(self.image_width * s), int(self.image_height * s)]
 
         mask_in_img = self.crop_back(mask, bg_box)
         # mask.shape -- (127, 127)
@@ -792,10 +797,10 @@ class SiameseTracker(nn.Module):
 
         # Update target
         best_bbox = bbox[:, best_id] / scale_x
-        self.set_target(self.target_rc + best_bbox[1], 
-                        self.target_cc + best_bbox[0],
-                        self.target_h * (1 - lr) + best_bbox[3] * lr,
-                        self.target_w * (1 - lr) + best_bbox[2] * lr)
+        self.set_target(int(self.target_rc + best_bbox[1]), 
+                        int(self.target_cc + best_bbox[0]),
+                        int(self.target_h * (1 - lr) + best_bbox[3] * lr),
+                        int(self.target_w * (1 - lr) + best_bbox[2] * lr))
         self.target_clamp()
 
         return target_mask
