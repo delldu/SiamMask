@@ -431,8 +431,8 @@ class Refine(nn.Module):
         return out
 
 def get_range_pad(y:int, d:int, maxy:int) -> Tuple[int, int, int, int]:
-    y1 = round(y - d/2)
-    y2 = round(y1 + d - 1)
+    y1 = int(y - d/2)
+    y2 = int(y1 + d - 1)
 
     pad1 = max(0, -y1)
     pad2 = max(0, y2 - maxy + 1)
@@ -475,12 +475,12 @@ def get_scale_size(h: int, w: int) -> int:
     return int(math.sqrt((3 * h + w) * (3 * w + h))/2)
 
 def change(r):
-    return np.maximum(r, 1. / r)
+    return torch.max(r, 1. / r)
 
 def sz(w, h):
     pad = (w + h) * 0.5
     sz2 = (w + pad) * (h + pad)
-    return np.sqrt(sz2)
+    return torch.sqrt(sz2)
 
 def generate_anchor(cfg, score_size):
     # cfg = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8]}
@@ -523,7 +523,7 @@ def generate_anchor(cfg, score_size):
     #        [ 96.,  96.,  32.,  96.]], dtype=float32)
     # (Pdb) anchor.shape
     # (3125, 4)
-    # anchor[0] -- array([-96., -96., 104.,  32.], (x, y, w, h) ?
+    # anchor[0] -- array([-96., -96., 104.,  32.], (cc, rc, w, h) ?
 
     return anchor
 
@@ -535,8 +535,8 @@ class SiameseTracker(nn.Module):
         self.config = {'stride': 8, 'ratios': [0.25, 0.5, 1, 2, 4], 'scales': [8], 'base_size': 8}
         self.anchor_num = len(self.config["ratios"]) * len(self.config["scales"])
         self.score_size = 25
-        self.anchor = generate_anchor(self.config, self.score_size)
-        # 'anchor': array([[-96., -96., 104.,  32.],
+        self.anchor = torch.from_numpy(generate_anchor(self.config, self.score_size)).to(device)
+        # 'anchor':([[-96., -96., 104.,  32.],
         #        [-88., -96., 104.,  32.],
         #        [-80., -96., 104.,  32.],
         #        ...,
@@ -560,7 +560,8 @@ class SiameseTracker(nn.Module):
 
         window = torch.hamming_window(self.score_size)
         window = window.view(self.score_size, 1) * window.view(1, self.score_size)
-        self.window = window.flatten().repeat(self.anchor_num)
+        self.window = window.flatten().repeat(self.anchor_num).to(self.device)
+
         # self.window.size: (225 * 25 * 5) = 3125
 
         # Set standard template features
@@ -655,13 +656,16 @@ class SiameseTracker(nn.Module):
         return rpn_pred_mask.sigmoid()
 
     def convert_bbox(self, delta):
-        delta = delta.permute(1, 2, 3, 0).contiguous().view(4, -1)
-        delta = delta.data.cpu().numpy()
+        # delta = delta.permute(1, 2, 3, 0).contiguous().view(4, -1)
+        # delta = delta.data.cpu().numpy()
+        delta = delta.permute(1, 2, 3, 0).view(4, -1)
 
+    	# delta format: delta_x, delta_y, delta_w, delta_h ?
+    	# anchor format: (cc, rc, w, h)
         delta[0, :] = delta[0, :] * self.anchor[:, 2] + self.anchor[:, 0] # x
         delta[1, :] = delta[1, :] * self.anchor[:, 3] + self.anchor[:, 1] # y
-        delta[2, :] = np.exp(delta[2, :]) * self.anchor[:, 2]    # w
-        delta[3, :] = np.exp(delta[3, :]) * self.anchor[:, 3]    # h
+        delta[2, :] = torch.exp(delta[2, :]) * self.anchor[:, 2]    # w
+        delta[3, :] = torch.exp(delta[3, :]) * self.anchor[:, 3]    # h
         return delta
 
     def convert_score(self, score):
@@ -672,7 +676,7 @@ class SiameseTracker(nn.Module):
         # score = F.softmax(score, dim=1).data[:, 1].cpu().numpy()
         score = score.permute(1, 2, 3, 0).view(2, -1).permute(1, 0)
         score = F.softmax(score, dim=1)
-        score = score[:, 1].cpu().numpy()
+        score = score[:, 1]
 
         return score
 
@@ -742,21 +746,26 @@ class SiameseTracker(nn.Module):
         template_w = self.target_w * scale_x
         bbox_h = bbox[3, :]
         bbox_w = bbox[2, :]
-        s_c = change(sz(bbox_w, bbox_h) / (sz(template_h, template_w)))  # scale penalty
-        r_c = change(self.target_w / self.target_h) / (bbox_w / bbox_h)  # ratio penalty
-        penalty = np.exp(-(r_c * s_c - 1) * 0.04)  #penalty_k == 0.04
+        s_c = change(sz(bbox_w, bbox_h) / (get_scale_size(template_h, template_w)))  # scale penalty
+        r_c = change((self.target_w / self.target_h) / (bbox_w / bbox_h))  # ratio penalty
+        penalty = torch.exp(-(r_c * s_c - 1) * 0.04)  #penalty_k == 0.04
         penalty_score = penalty * score
 
         # Smooth penalty score ...
         window_influence = 0.4
-        penalty_score = penalty_score * (1 - window_influence) + self.window.numpy() * window_influence
+        penalty_score = penalty_score * (1 - window_influence) + self.window * window_influence
 
-        best_id = np.argmax(penalty_score)
+        best_id = torch.argmax(penalty_score)
         lr = penalty[best_id] * score[best_id]  # lr for OTB
 
         # for Mask Branch
-        best_anchor = np.unravel_index(best_id, (self.anchor_num, self.score_size, self.score_size))
-        anchor_r, anchor_c = best_anchor[1], best_anchor[2]
+        # best_anchor = np.unravel_index(best_id, (self.anchor_num, self.score_size, self.score_size))
+        # anchor_r, anchor_c = best_anchor[1], best_anchor[2]
+        left = best_id % (self.score_size * self.score_size)
+        anchor_r = int(left/self.score_size)
+        anchor_c = left % self.score_size
+
+
 
         mask = self.track_refine((anchor_r, anchor_c)).view(self.template_size, self.template_size)
         #  pp anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
