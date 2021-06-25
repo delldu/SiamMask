@@ -321,7 +321,7 @@ class ResnetDown(nn.Module):
         self.features = resnet50(layer3=True, layer4=False)
         self.downsample = ResDownS(1024, 256)
 
-    def forward(self, x):
+    def forward(self, x)->Tuple[List[torch.Tensor], torch.Tensor]:
         # x.size() -- torch.Size([1, 3, 127, 127])
         output = self.features(x)
         # (Pdb) output[0].size(), output[1].size(), output[2].size(), output[3].size()
@@ -394,10 +394,10 @@ class Refine(nn.Module):
                     nn.init.kaiming_uniform_(l.weight, a=1)
 
     def forward(self, f, corr_feature, pos):
-        # (Pdb) type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
+        # (Pdb) f -- full_feature, type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
         # (<class 'tuple'>, 4, torch.Size([1, 64, 125, 125]), torch.Size([1, 256, 63, 63]), torch.Size([1, 512, 31, 31]), torch.Size([1, 1024, 31, 31]))
         # corr_feature.size() -- torch.Size([1, 256, 25, 25])
-        # (Pdb) type(pos), len(pos), type(pos[0]), type(pos[1])
+        # (Pdb) pos = anchor_r, anchor_c, type(pos), len(pos), type(pos[0]), type(pos[1])
         # (<class 'tuple'>, 2, <class 'numpy.int64'>, <class 'numpy.int64'>)
 
         # test = True
@@ -430,7 +430,7 @@ class Refine(nn.Module):
         out = out.view(-1, 127*127)
         return out
 
-def get_range_pad(y, d, maxy):
+def get_range_pad(y:int, d:int, maxy:int) -> Tuple[int, int, int, int]:
     y1 = round(y - d/2)
     y2 = round(y1 + d - 1)
 
@@ -440,10 +440,10 @@ def get_range_pad(y, d, maxy):
     y1 = y1 + pad1
     y2 = y2 + pad1
 
-    return y1, y2, pad1, pad2
+    return int(y1), int(y2), int(pad1), int(pad2)
 
 
-def get_subwindow(image, target_rc, target_cc, target_size, search_size, bg_color):
+def get_subwindow(image, target_rc:int, target_cc:int, target_size:int, search_size:int, bg_color):
     batch = int(image.size(0))
     chan = int(image.size(1))
     height = int(image.size(2))
@@ -467,13 +467,20 @@ def get_subwindow(image, target_rc, target_cc, target_size, search_size, bg_colo
     return F.interpolate(patch, size=(target_size, target_size), mode='nearest')
 
 
-def get_scale_size(h, w):
+def get_scale_size(h: int, w: int) -> int:
     # hc = h + (h + w)/2
     # wc = w + (h + w)/2
     # s = sqrt(hc * wc)
 
-    return math.sqrt((3 * h + w) * (3 * w + h))/2
+    return int(math.sqrt((3 * h + w) * (3 * w + h))/2)
 
+def change(r):
+    return np.maximum(r, 1. / r)
+
+def sz(w, h):
+    pad = (w + h) * 0.5
+    sz2 = (w + pad) * (h + pad)
+    return np.sqrt(sz2)
 
 def generate_anchor(cfg, score_size):
     # cfg = {'stride': 8, 'ratios': [0.33, 0.5, 1, 2, 3], 'scales': [8]}
@@ -563,7 +570,7 @@ class SiameseTracker(nn.Module):
         self.image_height = 256
         self.image_width = 256
         self.background = torch.zeros([0, 0, 0]).to(self.device)
-        self.full_feature = None
+        self.full_feature: List[torch.Tensor] = []
         self.corr_feature = None
 
         # rc -- row center, cc -- column center
@@ -625,13 +632,18 @@ class SiameseTracker(nn.Module):
     def set_background(self, bgcolor):
         self.background = bgcolor
 
-    def track_mask(self, search):
+    def track_mask(self, search)->Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
-        with torch.no_grad():
-            self.full_feature, self.search = self.features(search)
-            # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
-            rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, self.search)
-            self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, self.search)
+        # xxxx8888
+        self.full_feature, search_feature = self.features(search)
+        # full_feature, search_feature = self.features(search)
+
+        # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
+        rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, search_feature)
+
+        # xxxx8888
+        self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
+        # corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
         
         rpn_pred_score = self.convert_score(rpn_pred_cls)
         rpn_pred_bbox = self.convert_bbox(rpn_pred_loc)
@@ -639,8 +651,7 @@ class SiameseTracker(nn.Module):
         return rpn_pred_score, rpn_pred_bbox, rpn_pred_mask
 
     def track_refine(self, pos):
-        with torch.no_grad():
-            rpn_pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
+        rpn_pred_mask = self.refine_model(self.full_feature, self.corr_feature, pos=pos)
         return rpn_pred_mask.sigmoid()
 
     def convert_bbox(self, delta):
@@ -654,8 +665,15 @@ class SiameseTracker(nn.Module):
         return delta
 
     def convert_score(self, score):
-        score = score.permute(1, 2, 3, 0).contiguous().view(2, -1).permute(1, 0)
-        score = F.softmax(score, dim=1).data[:, 1].cpu().numpy()
+    	# score.size() -- torch.Size([1, 10, 25, 25])
+        # pdb.set_trace()
+
+        # score = score.permute(1, 2, 3, 0).contiguous().view(2, -1).permute(1, 0)
+        # score = F.softmax(score, dim=1).data[:, 1].cpu().numpy()
+        score = score.permute(1, 2, 3, 0).view(2, -1).permute(1, 0)
+        score = F.softmax(score, dim=1)
+        score = score[:, 1].cpu().numpy()
+
         return score
 
     def crop_back(self, mask, bbox, padding=-1):
@@ -706,25 +724,17 @@ class SiameseTracker(nn.Module):
 
         # p.instance_size -- 255, p.template_size -- 127
         d_search = (self.instance_size - self.template_size) / 2
-        pad = d_search / scale_x
+        pad = int(d_search / scale_x)
         target_e = target_e + 2 * pad
 
         x_crop = get_subwindow(image, self.target_rc, self.target_cc, self.instance_size, target_e, bg_color)
         # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
 
-        score, bbox, mask = self.track_mask(x_crop.to(self.device))
+        score, bbox, mask = self.track_mask(x_crop)
         # score.size()-- (torch.Size([1, 10, 25, 25]),
         # mask.size() --  torch.Size([1, 3969, 25, 25]))
         # bbox.size() -- torch.Size([1, 20, 25, 25])
         # score.shape -- (3125,)
-
-        def change(r):
-            return np.maximum(r, 1. / r)
-
-        def sz(w, h):
-            pad = (w + h) * 0.5
-            sz2 = (w + pad) * (h + pad)
-            return np.sqrt(sz2)
 
         # Size penalty
         # For scale_x=template_size/target_e, so template_h/w is virtual template size

@@ -12,7 +12,7 @@ import argparse
 import glob
 import os
 import pdb  # For debug
-
+import time
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
@@ -41,15 +41,19 @@ if __name__ == "__main__":
     model = model.to(device)
     model.eval()
 
-    print(model)
+    # print(model)
+    # script_model = torch.jit.script(model)
 
     image_filenames = sorted(glob.glob(args.input))
     progress_bar = tqdm(total = len(image_filenames))
 
+    spend_time = 0
     for index, filename in enumerate(image_filenames):
         progress_bar.update(1)
 
         image = Image.open(filename).convert("RGB")
+
+        start_time = time.time()
         input_tensor = totensor(image).unsqueeze(0).to(device)
 
         input_tensor = input_tensor * 255.0
@@ -66,5 +70,10 @@ if __name__ == "__main__":
             input_tensor[:, 0, :, :] = (mask > 0) * 255.0 + (mask == 0) * input_tensor[:, 0, :, :]
 
         input_tensor = input_tensor / 255.0
+        input_tensor = input_tensor.squeeze(0).cpu()
+        spend_time += (time.time() - start_time)
 
-        toimage(input_tensor.squeeze(0).cpu()).save("{}/{}".format(args.output, os.path.basename(filename)))
+        toimage(input_tensor).save("{}/{}".format(args.output, os.path.basename(filename)))
+    
+    spend_time = spend_time*1000/len(image_filenames)
+    print("Per frame spend {} ms, fps: {}".format(spend_time, 1000.0/spend_time))
