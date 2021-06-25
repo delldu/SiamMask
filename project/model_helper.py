@@ -19,9 +19,11 @@ import torch.nn.functional as F
 import math
 import numpy as np
 
-from typing import Dict, List, Tuple
-
 import pdb
+
+from typing import List, Tuple
+# Only for typing annotations
+Tensor = torch.Tensor
 
 
 class Anchors:
@@ -57,8 +59,6 @@ class Anchors:
                     self.anchors[count][:] = [-w*0.5+x_offset, -h*0.5+y_offset, w*0.5+x_offset, h*0.5+y_offset][:]
                     count += 1
 
-
-
 def conv2d_dw_group(x, kernel):
     # x.size(), kernel.size() --(torch.Size([1, 256, 29, 29]), torch.Size([1, 256, 5, 5]))
     batch, channel = kernel.shape[:2]
@@ -68,7 +68,6 @@ def conv2d_dw_group(x, kernel):
     out = out.view(batch, channel, out.size(2), out.size(3))
     # pp out.size() -- torch.Size([1, 256, 25, 25])
     return out
-
 
 class DepthCorr(nn.Module):
     def __init__(self, in_channels, hidden, out_channels, kernel_size=3):
@@ -115,7 +114,6 @@ class DepthCorr(nn.Module):
         # out_channels = 10
         # kernel_size = 3
 
-
     def forward_corr(self, kernel, input):
         # (Pdb) kernel.size(), input.size() -- (torch.Size([1, 256, 7, 7]), torch.Size([1, 256, 31, 31]))
         kernel = self.conv_kernel(kernel)
@@ -124,7 +122,7 @@ class DepthCorr(nn.Module):
         # (Pdb) feature.size() -- torch.Size([1, 256, 25, 25])
         return feature
 
-    def forward(self, kernel, search)->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, kernel, search) -> Tuple[Tensor, Tensor]:
         # (Pdb) kernel.size() -- torch.Size([1, 256, 7, 7])
         # (Pdb) search.size() -- torch.Size([1, 256, 31, 31])
 
@@ -209,15 +207,12 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, layer4=False, layer3=False):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        # (Pdb) a
-        # self = ResNet()
         # block = <class 'resnet.Bottleneck'>
         # layers = [3, 4, 6, 3]
         # layer4 = False
         # layer3 = True
 
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0, # 3
-                               bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -279,7 +274,7 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         x = self.conv1(x)
         x = self.bn1(x)
         p0 = self.relu(x)
@@ -321,7 +316,7 @@ class ResnetDown(nn.Module):
         self.features = resnet50(layer3=True, layer4=False)
         self.downsample = ResDownS(1024, 256)
 
-    def forward(self, x)->Tuple[List[torch.Tensor], torch.Tensor]:
+    def forward(self, x) -> Tuple[List[Tensor], Tensor]:
         # x.size() -- torch.Size([1, 3, 127, 127])
         output = self.features(x)
         # (Pdb) output[0].size(), output[1].size(), output[2].size(), output[3].size()
@@ -346,7 +341,7 @@ class RPN(nn.Module):
         self.cls = DepthCorr(feature_in, feature_out, self.cls_output)
         self.loc = DepthCorr(feature_in, feature_out, self.loc_output)
 
-    def forward(self, z_f, x_f)->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, z_f, x_f) -> Tuple[Tensor, Tensor]:
         _, cls = self.cls(z_f, x_f)
         _, loc = self.loc(z_f, x_f)
         return cls, loc
@@ -358,7 +353,7 @@ class MaskCorr(nn.Module):
         self.oSz = oSz
         self.mask = DepthCorr(256, 256, self.oSz**2)
 
-    def forward(self, z, x):
+    def forward(self, z, x) -> Tuple[Tensor, Tensor]:
         return self.mask(z, x)
 
 class Refine(nn.Module):
@@ -393,7 +388,7 @@ class Refine(nn.Module):
                 if isinstance(l, nn.Conv2d):
                     nn.init.kaiming_uniform_(l.weight, a=1)
 
-    def forward(self, f: List[torch.Tensor], corr_feature, anchor_r:int, anchor_c:int):
+    def forward(self, f: List[Tensor], corr_feature, anchor_r: int, anchor_c: int):
         # (Pdb) f -- full_feature, type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
         # (<class 'tuple'>, 4, torch.Size([1, 64, 125, 125]), torch.Size([1, 256, 63, 63]), torch.Size([1, 512, 31, 31]), torch.Size([1, 1024, 31, 31]))
         # corr_feature.size() -- torch.Size([1, 256, 25, 25])
@@ -440,7 +435,6 @@ def get_range_pad(y:int, d:int, maxy:int) -> Tuple[int, int, int, int]:
 
     return int(y1), int(y2), int(pad1), int(pad2)
 
-
 def get_subwindow(image, target_rc:int, target_cc:int, target_size:int, search_size:int, bg_color):
     batch = int(image.size(0))
     chan = int(image.size(1))
@@ -464,12 +458,10 @@ def get_subwindow(image, target_rc:int, target_cc:int, target_size:int, search_s
 
     return F.interpolate(patch, size=(target_size, target_size), mode='nearest')
 
-
 def get_scale_size(h: int, w: int) -> int:
     # hc = h + (h + w)/2
     # wc = w + (h + w)/2
     # s = sqrt(hc * wc)
-
     return int(math.sqrt((3 * h + w) * (3 * w + h))/2)
 
 def change(r):
@@ -628,7 +620,7 @@ class SiameseTracker(nn.Module):
     def set_background(self, bgcolor):
         self.background = bgcolor
 
-    def track_mask(self, search)->Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[torch.Tensor], torch.Tensor]:
+    def track_mask(self, search) -> Tuple[Tensor, Tensor, Tensor, List[Tensor], Tensor]:
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
         full_feature, search_feature = self.features(search)
 
@@ -642,7 +634,7 @@ class SiameseTracker(nn.Module):
 
         return rpn_pred_score, rpn_pred_bbox, rpn_pred_mask, full_feature, corr_feature
 
-    def track_refine(self, full_feature: List[torch.Tensor], corr_feature, anchor_r:int, anchor_c:int, target_e:int):
+    def track_refine(self, full_feature: List[Tensor], corr_feature, anchor_r: int, anchor_c: int, target_e: int):
         rpn_pred_mask = self.refine_model(full_feature, corr_feature, anchor_r, anchor_c)
         mask = rpn_pred_mask.sigmoid().view(self.template_size, self.template_size)
 
@@ -687,7 +679,7 @@ class SiameseTracker(nn.Module):
 
         return score
 
-    def crop_back(self, mask, bbox:List[int]):
+    def crop_back(self, mask, bbox: List[int]):
         """
         https://github.com/jwyang/faster-rcnn.pytorch/blob/master/lib/model/utils/net_utils.py        
         affine input: (x1,y1,x2,y2)
@@ -757,8 +749,8 @@ class SiameseTracker(nn.Module):
         # For scale_x=template_size/target_e, so template_h/w is virtual template size
         template_h = int(self.target_h * scale_x)
         template_w = int(self.target_w * scale_x)
-        bbox_h = bbox[3, :]
         bbox_w = bbox[2, :]
+        bbox_h = bbox[3, :]
         s_c = change(sz(bbox_w, bbox_h) / (get_scale_size(template_h, template_w)))  # scale penalty
         r_c = change((self.target_w / self.target_h) / (bbox_w / bbox_h))  # ratio penalty
         penalty = torch.exp(-(r_c * s_c - 1) * 0.04)  #penalty_k == 0.04
@@ -775,7 +767,7 @@ class SiameseTracker(nn.Module):
         # best_anchor = np.unravel_index(best_id, (self.anchor_num, self.score_size, self.score_size))
         # anchor_r, anchor_c = best_anchor[1], best_anchor[2]
         left = best_id % (self.score_size * self.score_size)
-        anchor_r = int(torch.floor_divide(left, self.score_size))
+        anchor_r = int(torch.div(left, self.score_size, rounding_mode='floor'))
         anchor_c = int(left % self.score_size)
         #  pp anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
 
