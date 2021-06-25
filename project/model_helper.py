@@ -558,7 +558,7 @@ class SiameseTracker(nn.Module):
 
         # Reasonable setting ?
         self.image_height = 256
-        self.image_width = 256
+        self.image_width  = 256
         self.background = torch.zeros([0, 0, 0]).to(self.device)
 
         # rc -- row center, cc -- column center
@@ -570,7 +570,10 @@ class SiameseTracker(nn.Module):
         # Last init, set reference
         # self.set_reference(refrence, r, c, h, w)
 
-    def set_reference(self, reference, r, c, h, w):
+    # Since nothing in the model calls `set_reference`, the compiler
+    # must be explicitly told to compile this method
+    @torch.jit.export
+    def set_reference(self, reference, r: int, c: int, h: int, w: int):
         """Reference image: Tensor (1x3xHxW format, range: 0, 255, uint8"""
 
         height = int(reference.size(2))
@@ -596,7 +599,7 @@ class SiameseTracker(nn.Module):
             self.mask_model.eval()
             self.refine_model.eval()
 
-    def set_image_size(self, h, w):
+    def set_image_size(self, h: int, w: int):
         self.image_height = h
         self.image_width = w
 
@@ -614,8 +617,8 @@ class SiameseTracker(nn.Module):
 
     def set_template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
-        with torch.no_grad():
-            _, self.zf = self.features(template)
+        full_feature, template_feature = self.features(template)
+        self.zf = template_feature
 
     def set_background(self, bgcolor):
         self.background = bgcolor
@@ -767,7 +770,7 @@ class SiameseTracker(nn.Module):
         # best_anchor = np.unravel_index(best_id, (self.anchor_num, self.score_size, self.score_size))
         # anchor_r, anchor_c = best_anchor[1], best_anchor[2]
         left = best_id % (self.score_size * self.score_size)
-        anchor_r = int(torch.div(left, self.score_size, rounding_mode='floor'))
+        anchor_r = left // self.score_size
         anchor_c = int(left % self.score_size)
         #  pp anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
 
