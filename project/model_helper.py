@@ -559,7 +559,6 @@ class SiameseTracker(nn.Module):
         window = torch.hamming_window(self.score_size)
         window = window.view(self.score_size, 1) * window.view(1, self.score_size)
         self.window = window.flatten().repeat(self.anchor_num).to(self.device)
-
         # self.window.size: (225 * 25 * 5) = 3125
 
         # Set standard template features
@@ -631,15 +630,11 @@ class SiameseTracker(nn.Module):
 
     def track_mask(self, search)->Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[torch.Tensor], torch.Tensor]:
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
-        # xxxx8888
-        # self.full_feature, search_feature = self.features(search)
         full_feature, search_feature = self.features(search)
 
         # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
         rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, search_feature)
 
-        # xxxx8888
-        # self.corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
         corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
         
         rpn_pred_score = self.convert_score(rpn_pred_cls)
@@ -647,14 +642,33 @@ class SiameseTracker(nn.Module):
 
         return rpn_pred_score, rpn_pred_bbox, rpn_pred_mask, full_feature, corr_feature
 
-    def track_refine(self, full_feature: List[torch.Tensor], corr_feature, anchor_r:int, anchor_c:int):
+    def track_refine(self, full_feature: List[torch.Tensor], corr_feature, anchor_r:int, anchor_c:int, target_e:int):
         rpn_pred_mask = self.refine_model(full_feature, corr_feature, anchor_r, anchor_c)
-        # rpn_pred_mask = rpn_pred_mask.view(self.template_size, self.template_size)
-        return rpn_pred_mask.sigmoid()
+        mask = rpn_pred_mask.sigmoid().view(self.template_size, self.template_size)
+
+        s = target_e / self.instance_size
+        # e-target center: x, y format
+        e_center = [self.target_cc - target_e/2, self.target_rc - target_e/2]
+        # Anchor e_box center
+        base_size = 8 #self.config["base_size"]
+        config_stride = 8 #self.config["stride"]
+        anchor_dr = (anchor_r - base_size / 2) * config_stride
+        anchor_dc = (anchor_c - base_size / 2) * config_stride
+        # Foreground box
+        fg_box = [e_center[0] + anchor_dc * s, e_center[1] + anchor_dr * s, 
+                s * self.template_size, s * self.template_size]
+
+        s = self.instance_size / target_e
+        bg_box = [int(-fg_box[0] * s), int(-fg_box[1] * s), int(self.image_width * s), int(self.image_height * s)]
+
+        mask_in_img = self.crop_back(mask, bg_box)
+        # mask.shape -- (127, 127)
+        # (Pdb) mask_in_img.shape -- (480, 854)
+        target_mask = (mask_in_img > self.segment_threshold)
+        return target_mask
+
 
     def convert_bbox(self, delta):
-        # delta = delta.permute(1, 2, 3, 0).contiguous().view(4, -1)
-        # delta = delta.data.cpu().numpy()
         delta = delta.permute(1, 2, 3, 0).view(4, -1)
 
     	# delta format: delta_x, delta_y, delta_w, delta_h ?
@@ -667,10 +681,6 @@ class SiameseTracker(nn.Module):
 
     def convert_score(self, score):
     	# score.size() -- torch.Size([1, 10, 25, 25])
-        # pdb.set_trace()
-
-        # score = score.permute(1, 2, 3, 0).contiguous().view(2, -1).permute(1, 0)
-        # score = F.softmax(score, dim=1).data[:, 1].cpu().numpy()
         score = score.permute(1, 2, 3, 0).view(2, -1).permute(1, 0)
         score = F.softmax(score, dim=1)
         score = score[:, 1]
@@ -767,33 +777,9 @@ class SiameseTracker(nn.Module):
         left = best_id % (self.score_size * self.score_size)
         anchor_r = int(torch.floor_divide(left, self.score_size))
         anchor_c = int(left % self.score_size)
-
-        mask = self.track_refine(full_feature, corr_feature, anchor_r, anchor_c)
-
-        mask = mask.view(self.template_size, self.template_size)
-
         #  pp anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
 
-        s = target_e / self.instance_size
-        # e-target center: x, y format
-        e_center = [self.target_cc - target_e/2, self.target_rc - target_e/2]
-        # Anchor e_box center
-        # xxxx8888
-        base_size = 8 #self.config["base_size"]
-        config_stride = 8 #self.config["stride"]
-        anchor_dr = (anchor_r - base_size / 2) * config_stride
-        anchor_dc = (anchor_c - base_size / 2) * config_stride
-        # Foreground box
-        fg_box = [e_center[0] + anchor_dc * s, e_center[1] + anchor_dr * s, 
-                s * self.template_size, s * self.template_size]
-
-        s = self.instance_size / target_e
-        bg_box = [int(-fg_box[0] * s), int(-fg_box[1] * s), int(self.image_width * s), int(self.image_height * s)]
-
-        mask_in_img = self.crop_back(mask, bg_box)
-        # mask.shape -- (127, 127)
-        # (Pdb) mask_in_img.shape -- (480, 854)
-        target_mask = (mask_in_img > self.segment_threshold)
+        target_mask = self.track_refine(full_feature, corr_feature, anchor_r, anchor_c, target_e)
 
         # Update target
         best_bbox = bbox[:, best_id] / scale_x
