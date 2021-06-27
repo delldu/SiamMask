@@ -444,15 +444,8 @@ def get_subwindow(image, target_rc:int, target_cc:int, target_size:int, search_s
     x1, x2, left_pad, right_pad = get_range_pad(target_cc, search_size, width)
     y1, y2, top_pad, bottom_pad = get_range_pad(target_rc, search_size, height)
 
-    big = torch.zeros(batch, chan, height + top_pad + bottom_pad, width + left_pad + right_pad).to(image.device)
-
-    big[:, :, top_pad:top_pad + height, left_pad:left_pad + width] = image
-
-    # xxxx8888
-    # big[:, :, 0:top_pad, left_pad:left_pad + width] = bg_color
-    # big[:, :, height + top_pad:, left_pad:left_pad + width] = bg_color
-    # big[:, :, :, 0:left_pad] = bg_color
-    # big[:, :, :, width + left_pad:] = bg_color
+    # padding_left,padding_right, padding_top, padding_bottom
+    big = F.pad(image, (left_pad, right_pad, top_pad, bottom_pad))
 
     patch = big[:, :, y1:y2 + 1, x1:x2 + 1]
 
