@@ -63,12 +63,14 @@ if __name__ == "__main__":
         if index == 0:
             x, y, h, w = 300, 100, 280, 180
             r, c = y + h/2, x + w/2
-            model.set_reference(input_tensor, r, c, h, w)
-            continue
+            target = torch.IntTensor([r, c, h, w])
         else:
-            with torch.no_grad():
-                mask = model(input_tensor).squeeze()
+            target = None
 
+        with torch.no_grad():
+            mask = model(input_tensor, target).squeeze()
+
+        if (input_tensor.size(2) == mask.size(0) and input_tensor.size(3) == mask.size(1)):
             input_tensor[:, 0, :, :] = (mask > 0) * 255.0 + (mask == 0) * input_tensor[:, 0, :, :]
 
         input_tensor = input_tensor / 255.0

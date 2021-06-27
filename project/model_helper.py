@@ -21,7 +21,8 @@ import numpy as np
 
 import pdb
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+
 # Only for typing annotations
 Tensor = torch.Tensor
 
@@ -436,8 +437,8 @@ def get_range_pad(y:int, d:int, maxy:int) -> Tuple[int, int, int, int]:
     return int(y1), int(y2), int(pad1), int(pad2)
 
 def get_subwindow(image, target_rc:int, target_cc:int, target_size:int, search_size:int, bg_color):
-    batch = int(image.size(0))
-    chan = int(image.size(1))
+    # batch = int(image.size(0))
+    # chan = int(image.size(1))
     height = int(image.size(2))
     width = int(image.size(3))
 
@@ -457,10 +458,10 @@ def get_scale_size(h: int, w: int) -> int:
     # s = sqrt(hc * wc)
     return int(math.sqrt((3 * h + w) * (3 * w + h))/2)
 
-def change(r):
+def get_max_change(r):
     return torch.max(r, 1. / r)
 
-def sz(w, h):
+def get_scale_tensor(w, h):
     pad = (w + h) * 0.5
     sz2 = (w + pad) * (h + pad)
     return torch.sqrt(sz2)
@@ -547,7 +548,7 @@ class SiameseTracker(nn.Module):
         # self.window.size: (225 * 25 * 5) = 3125
 
         # Set standard template features
-        self.zf = torch.zeros(1, 256, 7, 7).to(self.device)
+        self.template_feature = torch.zeros(1, 256, 7, 7).to(self.device)
 
         # Reasonable setting ?
         self.image_height = 256
@@ -566,8 +567,13 @@ class SiameseTracker(nn.Module):
     # Since nothing in the model calls `set_reference`, the compiler
     # must be explicitly told to compile this method
     @torch.jit.export
-    def set_reference(self, reference, r: int, c: int, h: int, w: int):
+    def set_reference(self, reference, target):
         """Reference image: Tensor (1x3xHxW format, range: 0, 255, uint8"""
+
+        r = int(target[0])
+        c = int(target[1])
+        h = int(target[2])
+        w = int(target[3])
 
         height = int(reference.size(2))
         width = int(reference.size(3))
@@ -610,8 +616,8 @@ class SiameseTracker(nn.Module):
 
     def set_template(self, template):
         # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
-        full_feature, template_feature = self.features(template)
-        self.zf = template_feature
+        full_feature, temp_feature = self.features(template)
+        self.template_feature = temp_feature
 
     def set_background(self, bgcolor):
         self.background = bgcolor
@@ -620,17 +626,18 @@ class SiameseTracker(nn.Module):
         # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
         full_feature, search_feature = self.features(search)
 
-        # (Pdb) self.zf.size() -- torch.Size([1, 256, 7, 7])
-        rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.zf, search_feature)
+        # (Pdb) self.template_feature.size() -- torch.Size([1, 256, 7, 7])
+        rpn_pred_cls, rpn_pred_loc = self.rpn_model(self.template_feature, search_feature)
 
-        corr_feature, rpn_pred_mask = self.mask_model(self.zf, search_feature)
+        corr_feature, rpn_pred_mask = self.mask_model(self.template_feature, search_feature)
         
         rpn_pred_score = self.convert_score(rpn_pred_cls)
         rpn_pred_bbox = self.convert_bbox(rpn_pred_loc)
 
         return rpn_pred_score, rpn_pred_bbox, rpn_pred_mask, full_feature, corr_feature
 
-    def track_refine(self, full_feature: List[Tensor], corr_feature, anchor_r: int, anchor_c: int, target_e: int):
+    def track_refine(self, full_feature: List[Tensor], corr_feature, \
+        anchor_r: int, anchor_c: int, target_e: int):
         rpn_pred_mask = self.refine_model(full_feature, corr_feature, anchor_r, anchor_c)
         mask = rpn_pred_mask.sigmoid().view(self.template_size, self.template_size)
 
@@ -647,14 +654,14 @@ class SiameseTracker(nn.Module):
                 s * self.template_size, s * self.template_size]
 
         s = self.instance_size / target_e
-        bg_box = [int(-fg_box[0] * s), int(-fg_box[1] * s), int(self.image_width * s), int(self.image_height * s)]
+        bg_box = [int(-fg_box[0] * s), int(-fg_box[1] * s), \
+                    int(self.image_width * s), int(self.image_height * s)]
 
         mask_in_img = self.crop_back(mask, bg_box)
         # mask.shape -- (127, 127)
         # (Pdb) mask_in_img.shape -- (480, 854)
         target_mask = (mask_in_img > self.segment_threshold)
         return target_mask
-
 
     def convert_bbox(self, delta):
         delta = delta.permute(1, 2, 3, 0).view(4, -1)
@@ -697,7 +704,7 @@ class SiameseTracker(nn.Module):
         c = float((x1 + x2 - W + 1)/(W - 1))
         b = float((y2 - y1)/(H - 1))
         d = float((y1 + y2 - H + 1)/(H - 1))
-        # theta = torch.Tensor([[a, 0.0, c], [0.0, b, d]])
+        # theta = torch.Tensor([[a, 0.0, c], [0.0, b, d]]), !!! script not support !!!
         theta = torch.zeros(2, 3)
         theta[0][0] = a
         theta[0][2] = c
@@ -716,8 +723,11 @@ class SiameseTracker(nn.Module):
         output = output.squeeze(0).squeeze(0)
         return output
 
-    def forward(self, image):
+    def forward(self, image, target: Optional[Tensor]):
         """image: Tensor (1x3xHxW format, range: 0, 255, uint8"""
+
+        if not target is None:
+            self.set_reference(image, target)
 
         bg_color = self.background
 
@@ -732,7 +742,8 @@ class SiameseTracker(nn.Module):
         pad = int(d_search / scale_x)
         target_e = target_e + 2 * pad
 
-        x_crop = get_subwindow(image, self.target_rc, self.target_cc, self.instance_size, target_e, bg_color)
+        x_crop = get_subwindow(image, self.target_rc, self.target_cc, \
+            self.instance_size, target_e, bg_color)
         # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
 
         score, bbox, mask, full_feature, corr_feature = self.track_mask(x_crop)
@@ -747,8 +758,8 @@ class SiameseTracker(nn.Module):
         template_w = int(self.target_w * scale_x)
         bbox_w = bbox[2, :]
         bbox_h = bbox[3, :]
-        s_c = change(sz(bbox_w, bbox_h) / (get_scale_size(template_h, template_w)))  # scale penalty
-        r_c = change((self.target_w / self.target_h) / (bbox_w / bbox_h))  # ratio penalty
+        s_c = get_max_change(get_scale_tensor(bbox_w, bbox_h) / (get_scale_size(template_h, template_w)))  # scale penalty
+        r_c = get_max_change((self.target_w / self.target_h) / (bbox_w / bbox_h))  # ratio penalty
         penalty = torch.exp(-(r_c * s_c - 1) * 0.04)  #penalty_k == 0.04
         penalty_score = penalty * score
 
@@ -759,13 +770,13 @@ class SiameseTracker(nn.Module):
         best_id = torch.argmax(penalty_score)
         lr = penalty[best_id] * score[best_id]  # lr for OTB
 
-        # for Mask Branch
+        # Mask Branch
         # best_anchor = np.unravel_index(best_id, (self.anchor_num, self.score_size, self.score_size))
         # anchor_r, anchor_c = best_anchor[1], best_anchor[2]
         left = best_id % (self.score_size * self.score_size)
-        anchor_r = left // self.score_size
+        anchor_r = int(left // self.score_size)
         anchor_c = int(left % self.score_size)
-        #  pp anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
+        # pp anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
 
         target_mask = self.track_refine(full_feature, corr_feature, anchor_r, anchor_c, target_e)
 

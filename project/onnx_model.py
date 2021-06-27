@@ -88,10 +88,10 @@ if __name__ == '__main__':
         model = get_model("models/image_siammask.pth")
         model.eval()
 
-        print("Building script ...")
-        script_model = torch.jit.script(model)
-        print(script_model.code)
-        print("Building OK.")
+        # print("Building script ...")
+        # script_model = torch.jit.script(model)
+        # print(script_model.code)
+        # print("Building OK.")
 
         with torch.no_grad():
             dummy_output = model(dummy_input)
@@ -101,9 +101,10 @@ if __name__ == '__main__':
 
         input_names = ["input"]
         output_names = ["output"]
-        dynamic_axes = {'input': {2: "height", 3: "width"},'output': {2: "height", 3: "width"}}
+        dynamic_axes = {'input': {2: "height", 3: "width"},
+                    'output': {2: "height", 3: "width"}}
 
-        torch.onnx.export(script_model, dummy_input, onnx_file_name,
+        torch.onnx.export(model, dummy_input, onnx_file_name,
                           input_names=input_names,
                           output_names=output_names,
                           verbose=True,
