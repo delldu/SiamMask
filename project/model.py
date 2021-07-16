@@ -1,4 +1,4 @@
-"""Create model."""# coding=utf-8
+"""Create model."""  # coding=utf-8
 #
 # /************************************************************************************
 # ***
@@ -19,6 +19,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from model_helper import SiameseTracker
+
 
 def model_load(model, path):
     """Load model."""
@@ -54,6 +55,7 @@ def get_model(checkpoint):
 
     return model
 
+
 class Counter(object):
     """Class Counter."""
 
@@ -79,7 +81,7 @@ class Counter(object):
         self.avg = self.sum / self.count
 
 
-def train_epoch(loader, model, optimizer, device, tag=''):
+def train_epoch(loader, model, optimizer, device, tag=""):
     """Trainning model ..."""
 
     total_loss = Counter()
@@ -117,7 +119,7 @@ def train_epoch(loader, model, optimizer, device, tag=''):
             # Update loss
             total_loss.update(loss_value, count)
 
-            t.set_postfix(loss='{:.6f}'.format(total_loss.avg))
+            t.set_postfix(loss="{:.6f}".format(total_loss.avg))
             t.update(count)
 
             # Optimizer
@@ -128,7 +130,7 @@ def train_epoch(loader, model, optimizer, device, tag=''):
         return total_loss.avg
 
 
-def valid_epoch(loader, model, device, tag=''):
+def valid_epoch(loader, model, device, tag=""):
     """Validating model  ..."""
 
     valid_loss = Counter()
@@ -163,12 +165,12 @@ def valid_epoch(loader, model, device, tag=''):
             loss_value = loss.item()
 
             valid_loss.update(loss_value, count)
-            t.set_postfix(loss='{:.6f}'.format(valid_loss.avg))
+            t.set_postfix(loss="{:.6f}".format(valid_loss.avg))
             t.update(count)
 
 
 def model_device():
-    """Please call after model_setenv. """
+    """Please call after model_setenv."""
 
     return torch.device(os.environ["DEVICE"])
 
@@ -178,14 +180,15 @@ def model_setenv():
 
     # random init ...
     import random
+
     random.seed(42)
     torch.manual_seed(42)
 
     # Set default device to avoid exceptions
     if os.environ.get("DEVICE") != "cuda" and os.environ.get("DEVICE") != "cpu":
-        os.environ["DEVICE"] = 'cuda' if torch.cuda.is_available() else 'cpu'
+        os.environ["DEVICE"] = "cuda" if torch.cuda.is_available() else "cpu"
 
-    if os.environ["DEVICE"] == 'cuda':
+    if os.environ["DEVICE"] == "cuda":
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = True
 

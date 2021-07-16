@@ -1,4 +1,4 @@
-"""Model predict."""# coding=utf-8
+"""Model predict."""  # coding=utf-8
 #
 # /************************************************************************************
 # ***
@@ -23,10 +23,19 @@ from model import get_model, model_device, model_setenv
 if __name__ == "__main__":
     """Predict."""
 
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--checkpoint', type=str, default="models/image_siammask.pth", help="checkpint file")
-    parser.add_argument('--input', type=str, default="tennis/*.jpg", help="input image")
-    parser.add_argument('-o', '--output', type=str, default="output", help="output folder")
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="models/image_siammask.pth",
+        help="checkpint file",
+    )
+    parser.add_argument("--input", type=str, default="tennis/*.jpg", help="input image")
+    parser.add_argument(
+        "-o", "--output", type=str, default="output", help="output folder"
+    )
 
     args = parser.parse_args()
     if not os.path.exists(args.output):
@@ -47,7 +56,7 @@ if __name__ == "__main__":
     print("Building OK")
 
     image_filenames = sorted(glob.glob(args.input))
-    progress_bar = tqdm(total = len(image_filenames))
+    progress_bar = tqdm(total=len(image_filenames))
 
     spend_time = 0
     for index, filename in enumerate(image_filenames):
@@ -62,7 +71,7 @@ if __name__ == "__main__":
 
         if index == 0:
             x, y, h, w = 300, 100, 280, 180
-            r, c = y + h/2, x + w/2
+            r, c = y + h / 2, x + w / 2
             target = torch.IntTensor([r, c, h, w])
         else:
             target = None
@@ -70,14 +79,20 @@ if __name__ == "__main__":
         with torch.no_grad():
             mask = model(input_tensor, target).squeeze()
 
-        if (input_tensor.size(2) == mask.size(0) and input_tensor.size(3) == mask.size(1)):
-            input_tensor[:, 0, :, :] = (mask > 0) * 255.0 + (mask == 0) * input_tensor[:, 0, :, :]
+        if input_tensor.size(2) == mask.size(0) and input_tensor.size(3) == mask.size(
+            1
+        ):
+            input_tensor[:, 0, :, :] = (mask > 0) * 255.0 + (mask == 0) * input_tensor[
+                :, 0, :, :
+            ]
 
         input_tensor = input_tensor / 255.0
         input_tensor = input_tensor.squeeze(0).cpu()
-        spend_time += (time.time() - start_time)
+        spend_time += time.time() - start_time
 
-        toimage(input_tensor).save("{}/{}".format(args.output, os.path.basename(filename)))
-    
-    spend_time = spend_time*1000/len(image_filenames)
-    print("Per frame spend {} ms, fps: {}".format(spend_time, 1000.0/spend_time))
+        toimage(input_tensor).save(
+            "{}/{}".format(args.output, os.path.basename(filename))
+        )
+
+    spend_time = spend_time * 1000 / len(image_filenames)
+    print("Per frame spend {} ms, fps: {}".format(spend_time, 1000.0 / spend_time))

@@ -1,4 +1,4 @@
-"""Onnx Model Tools."""# coding=utf-8
+"""Onnx Model Tools."""  # coding=utf-8
 #
 # /************************************************************************************
 # ***
@@ -30,37 +30,52 @@ from PIL import Image
 #
 from model import get_model, model_setenv, model_device
 
+
 def onnx_load(onnx_file):
     session_options = onnxruntime.SessionOptions()
     # session_options.log_severity_level = 0
 
     # Set graph optimization level
-    session_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+    session_options.graph_optimization_level = (
+        onnxruntime.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+    )
 
     onnx_model = onnxruntime.InferenceSession(onnx_file, session_options)
     # onnx_model.set_providers(['CUDAExecutionProvider'])
-    print("Onnx Model Engine: ", onnx_model.get_providers(),
-          "Device: ", onnxruntime.get_device())
+    print(
+        "Onnx Model Engine: ",
+        onnx_model.get_providers(),
+        "Device: ",
+        onnxruntime.get_device(),
+    )
 
     return onnx_model
 
 
 def onnx_forward(onnx_model, input):
     def to_numpy(tensor):
-        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+        return (
+            tensor.detach().cpu().numpy()
+            if tensor.requires_grad
+            else tensor.cpu().numpy()
+        )
 
     onnxruntime_inputs = {onnx_model.get_inputs()[0].name: to_numpy(input)}
     onnxruntime_outputs = onnx_model.run(None, onnxruntime_inputs)
     return torch.from_numpy(onnxruntime_outputs[0])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """Onnx tools ..."""
 
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-e', '--export', help="export onnx model", action='store_true')
-    parser.add_argument('-v', '--verify', help="verify onnx model", action='store_true')
-    parser.add_argument('-o', '--output', type=str, default="output", help="output folder")
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument("-e", "--export", help="export onnx model", action="store_true")
+    parser.add_argument("-v", "--verify", help="verify onnx model", action="store_true")
+    parser.add_argument(
+        "-o", "--output", type=str, default="output", help="output folder"
+    )
 
     args = parser.parse_args()
 
@@ -76,9 +91,11 @@ if __name__ == '__main__':
     #
 
     model_setenv()
-    device = model_device()        
+    device = model_device()
 
     dummy_input = torch.randn(1, 3, 512, 512).to(device)
+    dummy_target = torch.Tensor([100, 100, 200, 200]).to(device)
+
     onnx_file_name = "{}/image_siammask.onnx".format(args.output)
 
     def export_onnx():
@@ -94,28 +111,34 @@ if __name__ == '__main__':
         # print("Building OK.")
 
         with torch.no_grad():
-            dummy_output = model(dummy_input)
+            dummy_output = model(dummy_input, dummy_target)
 
         # 2. Model export
         print("Exporting onnx model to {}...".format(onnx_file_name))
 
-        input_names = ["input"]
+        input_names = ["input", "target"]
         output_names = ["output"]
-        dynamic_axes = {'input': {2: "height", 3: "width"},
-                    'output': {2: "height", 3: "width"}}
+        dynamic_axes = {
+            "input": {2: "height", 3: "width"},
+            "output": {2: "height", 3: "width"},
+        }
 
-        torch.onnx.export(model, dummy_input, onnx_file_name,
-                          input_names=input_names,
-                          output_names=output_names,
-                          verbose=True,
-                          opset_version=11,
-                          keep_initializers_as_inputs=False,
-                          dynamic_axes=dynamic_axes,
-                          export_params=True,
-                          example_outputs=dummy_output)
+        torch.onnx.export(
+            model,
+            (dummy_input, dummy_target),
+            onnx_file_name,
+            input_names=input_names,
+            output_names=output_names,
+            verbose=True,
+            opset_version=11,
+            keep_initializers_as_inputs=False,
+            dynamic_axes=dynamic_axes,
+            export_params=True,
+            example_outputs=dummy_output,
+        )
 
         # 3. Optimize model
-        print('Checking model ...')
+        print("Checking model ...")
         onnx_model = onnx.load(onnx_file_name)
         onnx.checker.check_model(onnx_model)
         # https://github.com/onnx/optimizer
@@ -132,16 +155,29 @@ if __name__ == '__main__':
         onnxruntime_engine = onnx_load(onnx_file_name)
 
         def to_numpy(tensor):
-            return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+            return (
+                tensor.detach().cpu().numpy()
+                if tensor.requires_grad
+                else tensor.cpu().numpy()
+            )
 
         with torch.no_grad():
-            torch_output = model(dummy_input)
+            torch_output = model(dummy_input, dummy_target)
 
-        onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+        onnxruntime_inputs = {
+            onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input),
+            onnxruntime_engine.get_inputs()[1].name: to_numpy(dummy_target),
+        }
         onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
 
-        np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-03, atol=1e-03)
-        print("Onnx model {} has been tested with ONNXRuntime, result sounds good !".format(onnx_file_name))
+        np.testing.assert_allclose(
+            to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-03, atol=1e-03
+        )
+        print(
+            "Onnx model {} has been tested with ONNXRuntime, result sounds good !".format(
+                onnx_file_name
+            )
+        )
 
     #
     # /************************************************************************************
