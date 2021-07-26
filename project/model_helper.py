@@ -18,13 +18,45 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import numpy as np
-
 import pdb
-
 from typing import List, Tuple, Optional
+
+from torch.onnx.symbolic_helper import parse_args
+from torch.onnx.symbolic_registry import register_op
 
 # Only for typing annotations
 Tensor = torch.Tensor
+
+# affine_grid prototype:
+#     torch.nn.functional.affine_grid(theta, size, align_corners=None)
+@parse_args("v", "v", "i")
+def affine_grid_generator(g, theta, size, align_corners):
+    return g.op(
+        "onnxservice::affine_grid_generator", theta, size, align_corners_i=align_corners
+    )
+
+
+register_op("affine_grid_generator", affine_grid_generator, "", 11)
+
+
+@parse_args("v", "v", "i", "i", "i")
+def grid_sampler(g, input, grid, interpolation_mode, padding_mode, align_corners=False):
+    """
+    torch.nn.functional.grid_sample(input, grid, mode='bilinear',
+        padding_mode='zeros', align_corners=None)
+    Need convert interpolation_mode, padding_mode? NO for simpler !!!
+    """
+    return g.op(
+        "onnxservice::grid_sampler",
+        input,
+        grid,
+        interpolation_mode_i=interpolation_mode,
+        padding_mode_i=padding_mode,
+        align_corners_i=align_corners,
+    )
+
+
+register_op("grid_sampler", grid_sampler, "", 11)
 
 
 class Anchors:
@@ -36,7 +68,9 @@ class Anchors:
 
         self.__dict__.update(cfg)
 
-        self.anchor_num = len(self.scales) * len(self.ratios) * (self.anchor_density ** 2)
+        self.anchor_num = (
+            len(self.scales) * len(self.ratios) * (self.anchor_density ** 2)
+        )
         self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32)
         self.generate_anchors()
 
@@ -69,7 +103,9 @@ def conv2d_dw_group(x, kernel):
     # x.size(), kernel.size() --[1, 256, 29, 29], [1, 256, 5, 5]
     batch, channel = kernel.shape[:2]
     x = x.view(1, batch * channel, x.size(2), x.size(3))  # 1 * (b*c) * k * k
-    kernel = kernel.view(batch * channel, 1, kernel.size(2), kernel.size(3))  # (b*c) * 1 * H * W
+    kernel = kernel.view(
+        batch * channel, 1, kernel.size(2), kernel.size(3)
+    )  # (b*c) * 1 * H * W
     out = F.conv2d(x, kernel, groups=batch * channel)
     out = out.view(batch, channel, out.size(2), out.size(3))
     # out.size() -- [1, 256, 25, 25]
@@ -172,7 +208,9 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)
         # padding = (2 - stride) + (dilation // 2 - 1)
         padding = 2 - stride
-        assert (stride == 1 or dilation == 1), "stride and dilation must have one at least"
+        assert (
+            stride == 1 or dilation == 1
+        ), "stride and dilation must have one at least"
         if dilation > 1:
             padding = dilation
         self.conv2 = nn.Conv2d(
@@ -588,7 +626,9 @@ class SiameseTracker(nn.Module):
         }
         self.anchor_num = len(self.config["ratios"]) * len(self.config["scales"])
         self.score_size = 25
-        self.anchor = torch.from_numpy(generate_anchor(self.config, self.score_size)).to(device)
+        self.anchor = torch.from_numpy(
+            generate_anchor(self.config, self.score_size)
+        ).to(device)
         # 'anchor':([[-96., -96., 104.,  32.],
         #        [-88., -96., 104.,  32.],
         #        [-80., -96., 104.,  32.],
