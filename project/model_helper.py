@@ -36,14 +36,9 @@ class Anchors:
 
         self.__dict__.update(cfg)
 
-        self.anchor_num = (
-            len(self.scales) * len(self.ratios) * (self.anchor_density ** 2)
-        )
-        self.anchors = np.zeros(
-            (self.anchor_num, 4), dtype=np.float32
-        )  # in single position (anchor_num*4)
+        self.anchor_num = len(self.scales) * len(self.ratios) * (self.anchor_density ** 2)
+        self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32)
         self.generate_anchors()
-        # pdb.set_trace()
 
     def generate_anchors(self):
         size = self.stride * self.stride
@@ -71,15 +66,13 @@ class Anchors:
 
 
 def conv2d_dw_group(x, kernel):
-    # x.size(), kernel.size() --(torch.Size([1, 256, 29, 29]), torch.Size([1, 256, 5, 5]))
+    # x.size(), kernel.size() --[1, 256, 29, 29], [1, 256, 5, 5]
     batch, channel = kernel.shape[:2]
     x = x.view(1, batch * channel, x.size(2), x.size(3))  # 1 * (b*c) * k * k
-    kernel = kernel.view(
-        batch * channel, 1, kernel.size(2), kernel.size(3)
-    )  # (b*c) * 1 * H * W
+    kernel = kernel.view(batch * channel, 1, kernel.size(2), kernel.size(3))  # (b*c) * 1 * H * W
     out = F.conv2d(x, kernel, groups=batch * channel)
     out = out.view(batch, channel, out.size(2), out.size(3))
-    # pp out.size() -- torch.Size([1, 256, 25, 25])
+    # out.size() -- [1, 256, 25, 25]
     return out
 
 
@@ -104,7 +97,6 @@ class DepthCorr(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(hidden, out_channels, kernel_size=1),
         )
-        # (Pdb) a
         # self = DepthCorr(
         #   (conv_kernel): Sequential(
         #     (0): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), bias=False)
@@ -129,22 +121,22 @@ class DepthCorr(nn.Module):
         # kernel_size = 3
 
     def forward_corr(self, kernel, input):
-        # (Pdb) kernel.size(), input.size() -- (torch.Size([1, 256, 7, 7]), torch.Size([1, 256, 31, 31]))
+        # kernel.size(), input.size() -- [1, 256, 7, 7], [1, 256, 31, 31]
         kernel = self.conv_kernel(kernel)
         input = self.conv_search(input)
         feature = conv2d_dw_group(input, kernel)
-        # (Pdb) feature.size() -- torch.Size([1, 256, 25, 25])
+        # feature.size() -- [1, 256, 25, 25]
         return feature
 
     def forward(self, kernel, search) -> Tuple[Tensor, Tensor]:
-        # (Pdb) kernel.size() -- torch.Size([1, 256, 7, 7])
-        # (Pdb) search.size() -- torch.Size([1, 256, 31, 31])
+        # kernel.size() -- [1, 256, 7, 7]
+        # search.size() -- [1, 256, 31, 31]
 
         # corr_feature
         feature = self.forward_corr(kernel, search)
-        # feature.size() -- torch.Size([1, 256, 25, 25])
+        # feature.size() -- [1, 256, 25, 25]
         out = self.head(feature)
-        # (Pdb) out.size() -- torch.Size([1, 10, 25, 25])
+        # out.size() -- [1, 10, 25, 25]
 
         return feature, out
 
@@ -154,7 +146,6 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(Bottleneck, self).__init__()
-        # (Pdb) a
         # self = Bottleneck(
         #   (conv1): Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
         #   (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
@@ -181,9 +172,7 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)
         # padding = (2 - stride) + (dilation // 2 - 1)
         padding = 2 - stride
-        assert (
-            stride == 1 or dilation == 1
-        ), "stride and dilation must have one equals to zero at least"
+        assert (stride == 1 or dilation == 1), "stride and dilation must have one at least"
         if dilation > 1:
             padding = dilation
         self.conv2 = nn.Conv2d(
@@ -218,8 +207,6 @@ class Bottleneck(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
 
-        # if out.size() != residual.size():
-        #     print(out.size(), residual.size())
         out += residual
         out = self.relu(out)
 
@@ -339,14 +326,14 @@ class ResDownS(nn.Module):
         )
 
     def forward(self, x):
-        # x.size() -- torch.Size([1, 1024, 15, 15])
+        # x.size() -- [1, 1024, 15, 15]
         x = self.downsample(x)
-        # (Pdb) pp x.size() -- torch.Size([1, 256, 15, 15])
+        # x.size() -- [1, 256, 15, 15]
         if x.size(3) < 20:
             l = 4
             r = -4
             x = x[:, :, l:r, l:r]
-        # x.size() -- torch.Size([1, 256, 7, 7])
+        # x.size() -- [1, 256, 7, 7]
         return x
 
 
@@ -357,13 +344,13 @@ class ResnetDown(nn.Module):
         self.downsample = ResDownS(1024, 256)
 
     def forward(self, x) -> Tuple[List[Tensor], Tensor]:
-        # x.size() -- torch.Size([1, 3, 127, 127])
+        # x.size() -- [1, 3, 127, 127]
         output = self.features(x)
-        # (Pdb) output[0].size(), output[1].size(), output[2].size(), output[3].size()
-        # (torch.Size([1, 64, 61, 61]), torch.Size([1, 256, 31, 31]),
-        # torch.Size([1, 512, 15, 15]), torch.Size([1, 1024, 15, 15]))
+        # output[0].size(), output[1].size(), output[2].size(), output[3].size()
+        # [1, 64, 61, 61], [1, 256, 31, 31],
+        # [1, 512, 15, 15], [1, 1024, 15, 15]
         p3 = self.downsample(output[-1])
-        # (Pdb) p3.size() -- torch.Size([1, 256, 7, 7])
+        # p3.size() -- [1, 256, 7, 7]
 
         return output, p3
 
@@ -466,22 +453,10 @@ class Refine(nn.Module):
                     nn.init.kaiming_uniform_(l.weight, a=1)
 
     def forward(self, f: List[Tensor], corr_feature, anchor_r: int, anchor_c: int):
-        # (Pdb) f -- full_feature, type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
-        # (<class 'tuple'>, 4, torch.Size([1, 64, 125, 125]), torch.Size([1, 256, 63, 63]), torch.Size([1, 512, 31, 31]), torch.Size([1, 1024, 31, 31]))
-        # corr_feature.size() -- torch.Size([1, 256, 25, 25])
+        # f -- full_feature, type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
+        # (<class 'tuple'>, 4, [1, 64, 125, 125], [1, 256, 63, 63],[1, 512, 31, 31], [1, 1024, 31, 31]
+        # corr_feature.size() -- [1, 256, 25, 25]
 
-        # test = True
-        # if test:
-        #     p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4*pos[0]:4*pos[0]+61, 4*pos[1]:4*pos[1]+61]
-        #     p1 = torch.nn.functional.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
-        #     p2 = torch.nn.functional.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
-        # else:
-        #     p0 = F.unfold(f[0], (61, 61), padding=0, stride=4).permute(0, 2, 1).contiguous().view(-1, 64, 61, 61)
-        #     if not (pos is None): p0 = torch.index_select(p0, 0, pos)
-        #     p1 = F.unfold(f[1], (31, 31), padding=0, stride=2).permute(0, 2, 1).contiguous().view(-1, 256, 31, 31)
-        #     if not (pos is None): p1 = torch.index_select(p1, 0, pos)
-        #     p2 = F.unfold(f[2], (15, 15), padding=0, stride=1).permute(0, 2, 1).contiguous().view(-1, 512, 15, 15)
-        #     if not (pos is None): p2 = torch.index_select(p2, 0, pos)
         p0 = F.pad(f[0], [16, 16, 16, 16])[
             :, :, 4 * anchor_r : 4 * anchor_r + 61, 4 * anchor_c : 4 * anchor_c + 61
         ]
@@ -493,10 +468,6 @@ class Refine(nn.Module):
         ]
 
         # pos = (12, 12)
-        # if not(pos is None):
-        #     p3 = corr_feature[:, :, pos[0], pos[1]].view(-1, 256, 1, 1)
-        # else:
-        #     p3 = corr_feature.permute(0, 2, 3, 1).contiguous().view(-1, 256, 1, 1)
         p3 = corr_feature[:, :, anchor_r, anchor_c].view(-1, 256, 1, 1)
 
         out = self.deconv(p3)
@@ -573,7 +544,7 @@ def generate_anchor(cfg, score_size):
     # anchor_num -- 5
     anchor = np.tile(anchor, score_size * score_size).reshape((-1, 4))
     ori = -(score_size // 2) * total_stride
-    # (Pdb) ori == -96
+    # ori == -96
 
     xx, yy = np.meshgrid(
         [ori + total_stride * dx for dx in range(score_size)],
@@ -584,13 +555,12 @@ def generate_anchor(cfg, score_size):
         np.tile(yy.flatten(), (anchor_num, 1)).flatten(),
     )
 
-    # (Pdb) xx -- array([-96, -88, -80, ...,  80,  88,  96])
-    # (Pdb) xx.shape -- (3125,)
-    # (Pdb) yy -- array([-96, -96, -96, ...,  96,  96,  96])
-    # (Pdb) yy.shape -- (3125,)
+    # xx -- array([-96, -88, -80, ...,  80,  88,  96])
+    # xx.shape -- (3125,)
+    # yy -- array([-96, -96, -96, ...,  96,  96,  96])
+    # yy.shape -- (3125,)
 
     anchor[:, 0], anchor[:, 1] = xx.astype(np.float32), yy.astype(np.float32)
-
     # (Pdb) anchor
     # array([[-96., -96., 104.,  32.],
     #        [-88., -96., 104.,  32.],
@@ -599,7 +569,7 @@ def generate_anchor(cfg, score_size):
     #        [ 80.,  96.,  32.,  96.],
     #        [ 88.,  96.,  32.,  96.],
     #        [ 96.,  96.,  32.,  96.]], dtype=float32)
-    # (Pdb) anchor.shape
+    # anchor.shape
     # (3125, 4)
     # anchor[0] -- array([-96., -96., 104.,  32.], (cc, rc, w, h) ?
 
@@ -618,9 +588,7 @@ class SiameseTracker(nn.Module):
         }
         self.anchor_num = len(self.config["ratios"]) * len(self.config["scales"])
         self.score_size = 25
-        self.anchor = torch.from_numpy(
-            generate_anchor(self.config, self.score_size)
-        ).to(device)
+        self.anchor = torch.from_numpy(generate_anchor(self.config, self.score_size)).to(device)
         # 'anchor':([[-96., -96., 104.,  32.],
         #        [-88., -96., 104.,  32.],
         #        [-80., -96., 104.,  32.],
@@ -640,10 +608,6 @@ class SiameseTracker(nn.Module):
         self.mask_model = MaskCorr()
         self.refine_model = Refine()
         self.reset_mode(is_training=False)
-
-        # torch.jit.script(self.features)
-        # torch.jit.script(self.mask_model)
-        # torch.jit.script(self.refine_model)
 
         window = torch.hamming_window(self.score_size)
         window = window.view(self.score_size, 1) * window.view(1, self.score_size)
@@ -690,7 +654,7 @@ class SiameseTracker(nn.Module):
         target_e = get_scale_size(h, w)
         z_crop = get_subwindow(reference, r, c, self.template_size, target_e, bg_color)
 
-        # (Pdb) z_crop.shape -- torch.Size([1, 3, 127, 127]), format range: [0, 255]
+        # (Pdb) z_crop.shape -- [1, 3, 127, 127], format range: [0, 255]
         self.set_template(z_crop)
 
     def reset_mode(self, is_training=False):
@@ -720,7 +684,7 @@ class SiameseTracker(nn.Module):
         self.target_w = max(10, min(self.image_width, self.target_w))
 
     def set_template(self, template):
-        # (Pdb) template.size() -- torch.Size([1, 3, 127, 127])
+        # (Pdb) template.size() -- [1, 3, 127, 127]
         full_feature, temp_feature = self.features(template)
         self.template_feature = temp_feature
 
@@ -728,10 +692,10 @@ class SiameseTracker(nn.Module):
         self.background = bgcolor
 
     def track_mask(self, search) -> Tuple[Tensor, Tensor, Tensor, List[Tensor], Tensor]:
-        # (Pdb) search.size() -- torch.Size([1, 3, 255, 255])
+        # search.size() -- [1, 3, 255, 255]
         full_feature, search_feature = self.features(search)
 
-        # (Pdb) self.template_feature.size() -- torch.Size([1, 256, 7, 7])
+        # self.template_feature.size() --[1, 256, 7, 7]
         rpn_pred_cls, rpn_pred_loc = self.rpn_model(
             self.template_feature, search_feature
         )
@@ -784,7 +748,7 @@ class SiameseTracker(nn.Module):
 
         mask_in_img = self.crop_back(mask, bg_box)
         # mask.shape -- (127, 127)
-        # (Pdb) mask_in_img.shape -- (480, 854)
+        # mask_in_img.shape -- (480, 854)
         target_mask = mask_in_img > self.segment_threshold
         return target_mask
 
@@ -800,7 +764,7 @@ class SiameseTracker(nn.Module):
         return delta
 
     def convert_score(self, score):
-        # score.size() -- torch.Size([1, 10, 25, 25])
+        # score.size() -- [1, 10, 25, 25]
         score = score.permute(1, 2, 3, 0).view(2, -1).permute(1, 0)
         score = F.softmax(score, dim=1)
         score = score[:, 1]
@@ -845,7 +809,6 @@ class SiameseTracker(nn.Module):
         output = F.grid_sample(
             input, grid, mode="bilinear", align_corners=True, padding_mode="zeros"
         )
-        # pdb.set_trace()
 
         output = output.squeeze(0).squeeze(0)
         return output
@@ -877,12 +840,12 @@ class SiameseTracker(nn.Module):
             target_e,
             bg_color,
         )
-        # (Pdb) pp x_crop.shape -- torch.Size([1, 3, 255, 255])
+        # pp x_crop.shape -- [1, 3, 255, 255]
 
         score, bbox, mask, full_feature, corr_feature = self.track_mask(x_crop)
-        # score.size()-- (torch.Size([1, 10, 25, 25]),
-        # mask.size() --  torch.Size([1, 3969, 25, 25]))
-        # bbox.size() -- torch.Size([1, 20, 25, 25])
+        # score.size()-- [1, 10, 25, 25],
+        # mask.size() --  [1, 3969, 25, 25]
+        # bbox.size() -- [1, 20, 25, 25]
         # score.shape -- (3125,)
 
         # Size penalty
