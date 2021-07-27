@@ -219,11 +219,15 @@ class Bottleneck(nn.Module):
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
+        if downsample is not None:
+            self.downsample = downsample
+        else:
+            self.downsample = lambda x: x
         self.stride = stride
 
     def forward(self, x):
-        residual = x
+        residual = self.downsample(x)
+
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
@@ -234,9 +238,6 @@ class Bottleneck(nn.Module):
 
         out = self.conv3(out)
         out = self.bn3(out)
-        # xxxx8888
-        if self.downsample is not None:
-            residual = self.downsample(x)
 
         out += residual
         out = self.relu(out)
