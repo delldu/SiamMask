@@ -51,9 +51,9 @@ if __name__ == "__main__":
     model.eval()
 
     # print(model)
-    print("Torch building ...")
-    script_model = torch.jit.script(model)
-    print("Building OK")
+    # print("Torch building ...")
+    # script_model = torch.jit.script(model)
+    # print("Building OK")
 
     image_filenames = sorted(glob.glob(args.input))
     progress_bar = tqdm(total=len(image_filenames))

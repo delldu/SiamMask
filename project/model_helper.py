@@ -70,33 +70,28 @@ class Anchors:
 
         self.anchor_num = (
             len(self.scales) * len(self.ratios) * (self.anchor_density ** 2)
-        )
-        self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32)
+        ) # 5
+        self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32) # (5, 4)
         self.generate_anchors()
+        # (Pdb) self.anchors
+        # array([[-64., -16.,  64.,  16.],
+        #        [-44., -20.,  44.,  20.],
+        #        [-32., -32.,  32.,  32.],
+        #        [-20., -40.,  20.,  40.],
+        #        [-16., -64.,  16.,  64.]], dtype=float32)
 
     def generate_anchors(self):
         size = self.stride * self.stride
         count = 0
-        anchors_offset = self.stride / self.anchor_density
-        anchors_offset = np.arange(self.anchor_density) * anchors_offset
-        anchors_offset = anchors_offset - np.mean(anchors_offset)
-        x_offsets, y_offsets = np.meshgrid(anchors_offset, anchors_offset)
+        for r in self.ratios:
+            ws = int(math.sqrt(size * 1.0 / r))
+            hs = int(ws * r)
 
-        for x_offset, y_offset in zip(x_offsets.flatten(), y_offsets.flatten()):
-            for r in self.ratios:
-                ws = int(math.sqrt(size * 1.0 / r))
-                hs = int(ws * r)
-
-                for s in self.scales:
-                    w = ws * s
-                    h = hs * s
-                    self.anchors[count][:] = [
-                        -w * 0.5 + x_offset,
-                        -h * 0.5 + y_offset,
-                        w * 0.5 + x_offset,
-                        h * 0.5 + y_offset,
-                    ][:]
-                    count += 1
+            for s in self.scales:
+                w = ws * s
+                h = hs * s
+                self.anchors[count][:] = [-w * 0.5, -h * 0.5, w * 0.5, h * 0.5][:]
+                count += 1
 
 
 def conv2d_dw_group(x, kernel):
@@ -156,6 +151,7 @@ class DepthCorr(nn.Module):
         # out_channels = 10
         # kernel_size = 3
 
+    # cross-correlated == siamese network !!!
     def forward_corr(self, kernel, input):
         # kernel.size(), input.size() -- [1, 256, 7, 7], [1, 256, 31, 31]
         kernel = self.conv_kernel(kernel)
@@ -164,13 +160,13 @@ class DepthCorr(nn.Module):
         # feature.size() -- [1, 256, 25, 25]
         return feature
 
-    def forward(self, kernel, search) -> Tuple[Tensor, Tensor]:
+    def forward(self, kernel, search):
         # kernel.size() -- [1, 256, 7, 7]
         # search.size() -- [1, 256, 31, 31]
 
         # corr_feature
         feature = self.forward_corr(kernel, search)
-        # feature.size() -- [1, 256, 25, 25]
+        # feature.size() -- [1, 256, 25, 25] -- for mask
         out = self.head(feature)
         # out.size() -- [1, 10, 25, 25]
 
@@ -208,9 +204,6 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)
         # padding = (2 - stride) + (dilation // 2 - 1)
         padding = 2 - stride
-        assert (
-            stride == 1 or dilation == 1
-        ), "stride and dilation must have one at least"
         if dilation > 1:
             padding = dilation
         self.conv2 = nn.Conv2d(
@@ -241,7 +234,7 @@ class Bottleneck(nn.Module):
 
         out = self.conv3(out)
         out = self.bn3(out)
-
+        # xxxx8888
         if self.downsample is not None:
             residual = self.downsample(x)
 
@@ -253,13 +246,13 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
     def __init__(self, block, layers, layer4=False, layer3=False):
-        self.inplanes = 64
         super(ResNet, self).__init__()
         # block = <class 'resnet.Bottleneck'>
         # layers = [3, 4, 6, 3]
         # layer4 = False
         # layer3 = True
 
+        self.inplanes = 64
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
@@ -401,15 +394,17 @@ class RPN(nn.Module):
         self.feature_in = feature_in
         self.feature_out = feature_out
 
-        self.cls_output = 2 * self.anchor_num
+        self.cls_output = 2 * self.anchor_num  # 2 means bg, fg score
         self.loc_output = 4 * self.anchor_num
 
         self.cls = DepthCorr(feature_in, feature_out, self.cls_output)
         self.loc = DepthCorr(feature_in, feature_out, self.loc_output)
 
-    def forward(self, z_f, x_f) -> Tuple[Tensor, Tensor]:
-        _, cls = self.cls(z_f, x_f)
-        _, loc = self.loc(z_f, x_f)
+    def forward(self, z, x) -> Tuple[Tensor, Tensor]:
+        # z, x -- template_feature, search_feature
+        # z.size() -- [1, 256, 7, 7] , x.size() -- [1, 256, 31, 31]
+        _, cls = self.cls(z, x)
+        _, loc = self.loc(z, x)
         return cls, loc
 
 
@@ -420,6 +415,8 @@ class MaskCorr(nn.Module):
         self.mask = DepthCorr(256, 256, self.oSz ** 2)
 
     def forward(self, z, x) -> Tuple[Tensor, Tensor]:
+        # z, x -- template_feature, search_feature
+        # z.size() -- [1, 256, 7, 7] , x.size() -- [1, 256, 31, 31]
         return self.mask(z, x)
 
 
@@ -492,7 +489,7 @@ class Refine(nn.Module):
 
     def forward(self, f: List[Tensor], corr_feature, anchor_r: int, anchor_c: int):
         # f -- full_feature, type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
-        # (<class 'tuple'>, 4, [1, 64, 125, 125], [1, 256, 63, 63],[1, 512, 31, 31], [1, 1024, 31, 31]
+        # tuple, 4, [1, 64, 125, 125], [1, 256, 63, 63],[1, 512, 31, 31], [1, 1024, 31, 31]
         # corr_feature.size() -- [1, 256, 25, 25]
 
         p0 = F.pad(f[0], [16, 16, 16, 16])[
@@ -599,7 +596,7 @@ def generate_anchor(cfg, score_size):
     # yy.shape -- (3125,)
 
     anchor[:, 0], anchor[:, 1] = xx.astype(np.float32), yy.astype(np.float32)
-    # (Pdb) anchor
+    # anchor
     # array([[-96., -96., 104.,  32.],
     #        [-88., -96., 104.,  32.],
     #        [-80., -96., 104.,  32.],
@@ -636,6 +633,7 @@ class SiameseTracker(nn.Module):
         #        [ 80.,  96.,  32.,  96.],
         #        [ 88.,  96.,  32.,  96.],
         #        [ 96.,  96.,  32.,  96.]], dtype=float32)}
+        # self.anchor.size() -- [3125, 4], 3125 = 25x25x5
 
         self.instance_size = 255  # for search size
         self.template_size = 127
@@ -694,7 +692,7 @@ class SiameseTracker(nn.Module):
         target_e = get_scale_size(h, w)
         z_crop = get_subwindow(reference, r, c, self.template_size, target_e, bg_color)
 
-        # (Pdb) z_crop.shape -- [1, 3, 127, 127], format range: [0, 255]
+        # z_crop.shape -- [1, 3, 127, 127], format range: [0, 255]
         self.set_template(z_crop)
 
     def reset_mode(self, is_training=False):
@@ -724,7 +722,7 @@ class SiameseTracker(nn.Module):
         self.target_w = max(10, min(self.image_width, self.target_w))
 
     def set_template(self, template):
-        # (Pdb) template.size() -- [1, 3, 127, 127]
+        # template.size() -- [1, 3, 127, 127]
         full_feature, temp_feature = self.features(template)
         self.template_feature = temp_feature
 
@@ -794,6 +792,7 @@ class SiameseTracker(nn.Module):
 
     def convert_bbox(self, delta):
         delta = delta.permute(1, 2, 3, 0).view(4, -1)
+        # delta.size() -- [1, 20, 25, 25] --> [20, 25, 25] --> [4, 3125]
 
         # delta format: delta_x, delta_y, delta_w, delta_h ?
         # anchor format: (cc, rc, w, h)
@@ -804,23 +803,23 @@ class SiameseTracker(nn.Module):
         return delta
 
     def convert_score(self, score):
-        # score.size() -- [1, 10, 25, 25]
         score = score.permute(1, 2, 3, 0).view(2, -1).permute(1, 0)
+        # score.size() -- [1, 10, 25, 25] --> [10, 25, 25] --> [2, 5x25x25] --> [3125, 2]
         score = F.softmax(score, dim=1)
-        score = score[:, 1]
-
+        score = score[:, 1] # Only use fg score, drop out bg score
         return score
 
-    def crop_back(self, mask, bbox: List[int]):
+    # xxxx8888
+    def crop_back(self, mask, bbox):
         """
         https://github.com/jwyang/faster-rcnn.pytorch/blob/master/lib/model/utils/net_utils.py
         affine input: (x1,y1,x2,y2)
         [  x2-x1             x1 + x2 - W + 1  ]
-        [  -----      0      ---------------  ]
+        [a=-----      0    c=---------------  ]
         [  W - 1                  W - 1       ]
         [                                     ]
         [           y2-y1    y1 + y2 - H + 1  ]
-        [    0      -----    ---------------  ]
+        [    0    b=-----  d=---------------  ]
         [           H - 1         H - 1      ]
         """
         x1 = bbox[0]
@@ -846,6 +845,8 @@ class SiameseTracker(nn.Module):
         grid = F.affine_grid(theta, (1, 1, H, W), align_corners=False).to(mask.device)
 
         input = mask.unsqueeze(0).unsqueeze(0)
+        # input.size() -- [1, 1, 127, 127]
+
         output = F.grid_sample(
             input, grid, mode="bilinear", align_corners=True, padding_mode="zeros"
         )
@@ -853,6 +854,7 @@ class SiameseTracker(nn.Module):
         output = output.squeeze(0).squeeze(0)
         return output
 
+    # xxxx8888
     def forward(self, image, target: Optional[Tensor]):
         """image: Tensor (1x3xHxW format, range: 0, 255, uint8"""
 
@@ -880,7 +882,7 @@ class SiameseTracker(nn.Module):
             target_e,
             bg_color,
         )
-        # pp x_crop.shape -- [1, 3, 255, 255]
+        # x_crop.shape -- [1, 3, 255, 255]
 
         score, bbox, mask, full_feature, corr_feature = self.track_mask(x_crop)
         # score.size()-- [1, 10, 25, 25],
@@ -910,7 +912,7 @@ class SiameseTracker(nn.Module):
         )
 
         best_id = torch.argmax(penalty_score)
-        lr = penalty[best_id] * score[best_id]  # lr for OTB
+        lr = penalty[best_id] * score[best_id]
 
         # Mask Branch
         # best_anchor = np.unravel_index(best_id, (self.anchor_num, self.score_size, self.score_size))
@@ -918,7 +920,7 @@ class SiameseTracker(nn.Module):
         left = best_id % (self.score_size * self.score_size)
         anchor_r = int(left // self.score_size)
         anchor_c = int(left % self.score_size)
-        # pp anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
+        # anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
 
         target_mask = self.track_refine(
             full_feature, corr_feature, anchor_r, anchor_c, target_e
