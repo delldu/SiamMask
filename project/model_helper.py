@@ -70,8 +70,8 @@ class Anchors:
 
         self.anchor_num = (
             len(self.scales) * len(self.ratios) * (self.anchor_density ** 2)
-        ) # 5
-        self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32) # (5, 4)
+        )  # 5
+        self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32)  # (5, 4)
         self.generate_anchors()
         # (Pdb) self.anchors
         # array([[-64., -16.,  64.,  16.],
@@ -807,7 +807,7 @@ class SiameseTracker(nn.Module):
         score = score.permute(1, 2, 3, 0).view(2, -1).permute(1, 0)
         # score.size() -- [1, 10, 25, 25] --> [10, 25, 25] --> [2, 5x25x25] --> [3125, 2]
         score = F.softmax(score, dim=1)
-        score = score[:, 1] # Only use fg score, drop out bg score
+        score = score[:, 1]  # Only use fg score, drop out bg score
         return score
 
     # xxxx8888
