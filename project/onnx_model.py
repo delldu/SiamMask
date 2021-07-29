@@ -105,10 +105,17 @@ if __name__ == "__main__":
         model = get_model("models/image_siammask.pth")
         model.eval()
 
-        # print("Building script ...")
-        # script_model = torch.jit.script(model)
-        # print(script_model.code)
+        # print("Building traced model ...")
+
+        # check_inputs = [
+        #     (dummy_input, dummy_target),
+        #     (torch.rand(1, 3, 256, 512).to(device), torch.Tensor([101, 100, 200, 250]).to(device)),
+        # ]
+        # traced_model = torch.jit.trace(model, (dummy_input, dummy_target), check_inputs=check_inputs)
+        # print(traced_model.code)
         # print("Building OK.")
+        # pdb.set_trace()
+
 
         with torch.no_grad():
             dummy_output = model(dummy_input, dummy_target)

@@ -53,6 +53,8 @@ def get_model(checkpoint):
     model_load(model, checkpoint)
     model.to(device)
 
+    # torch.save(model.features.state_dict(), "output/motion_features.pt")
+
     return model
 
 
