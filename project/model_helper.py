@@ -125,9 +125,9 @@ class SubWindowFunction(Function):
 
         # Set grad as 1.0
         grad_input = torch.ones_like(input)
-        grad_pos = torch.ones_like(target)
+        grad_target = torch.ones_like(target)
 
-        return (grad_input, grad_pos)
+        return (grad_input, grad_target)
 
     @staticmethod
     def symbolic(g, input, target):
@@ -143,6 +143,132 @@ class SubWindow(nn.Module):
         patch =  SubWindowFunction.apply(input, target)
         # zoom in/out patch to (size, size)
         return F.interpolate(patch, size=(self.size, self.size), mode="nearest")
+
+
+class AnchorBgBoxFunction(Function):
+    @staticmethod
+    def forward(ctx, anchor, target):
+        ctx.save_for_backward(anchor, target)        
+        output = siamese_cpp.anchor_bgbox(anchor, target)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        anchor, target = ctx.saved_tensors
+
+        # Set grad as 1.0
+        grad_anchor = torch.ones_like(anchor)
+        grad_target = torch.ones_like(target)
+
+        return (grad_anchor, grad_target)
+
+    @staticmethod
+    def symbolic(g, anchor, target):
+        return g.op("siamese::anchor_bgbox", anchor, target) 
+
+
+class AnchorBgBox(nn.Module):
+    def __init__(self, size):
+        super(AnchorBgBox, self).__init__()
+
+    def forward(self, anchor, target):
+        # bgbox =  AnchorBgBoxFunction.apply(anchor, target)
+        return AnchorBgBoxFunction.apply(anchor, target)
+
+
+class AffineThetaFunction(Function):
+    @staticmethod
+    def forward(ctx, mask, bbox):
+        ctx.save_for_backward(mask, bbox)        
+        output = siamese_cpp.affine_theta(mask, bbox)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        mask, bbox = ctx.saved_tensors
+
+        # Set grad as 1.0
+        grad_input = torch.ones_like(mask)
+        grad_bbox = torch.ones_like(bbox)
+
+        return (grad_input, grad_bbox)
+
+    @staticmethod
+    def symbolic(g, mask, bbox):
+        return g.op("siamese::affine_theta", mask, bbox) 
+
+
+class AffineTheta(nn.Module):
+    def __init__(self, size):
+        super(AffineTheta, self).__init__()
+
+    def forward(self, mask, bbox):
+        # theta =  AffineThetaFunction.apply(mask, bbox)
+        return AffineThetaFunction.apply(mask, bbox)
+
+
+# BestAnchor
+class BestAnchorFunction(Function):
+    @staticmethod
+    def forward(ctx, score, bbox, target):
+        ctx.save_for_backward(score, bbox, target)        
+        return siamese_cpp.best_anchor(score, bbox, target)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        score, bbox, target = ctx.saved_tensors
+
+        # Set grad as 1.0
+        grad_score = torch.ones_like(score)
+        grad_bbox = torch.ones_like(bbox)
+        grad_target = torch.ones_like(target)
+
+        return (grad_score, grad_bbox, grad_target)
+
+    @staticmethod
+    def symbolic(g, score, bbox, target):
+        return g.op("siamese::best_anchor", score, bbox, target) 
+
+
+class BestAnchor(nn.Module):
+    def __init__(self, size):
+        super(BestAnchor, self).__init__()
+
+    def forward(self, score, bbox, target):
+        # anchor, new_target =  BestAnchorFunction.apply(score, bbox, target)
+        return BestAnchorFunction.apply(score, bbox, target)
+
+
+# AnchorPatchs
+class AnchorPatchsFunction(Function):
+    @staticmethod
+    def forward(ctx, full_feature, corr_feature, anchor):
+        ctx.save_for_backward(full_feature, corr_feature, anchor)        
+        return siamese_cpp.anchor_patchs(full_feature, corr_feature, anchor)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        full_feature, corr_feature, anchor = ctx.saved_tensors
+
+        # Set grad as 1.0
+        grad_full_feature = torch.ones_like(full_feature)
+        grad_corr_feature = torch.ones_like(corr_feature)
+        grad_anchor = torch.ones_like(anchor)
+
+        return (grad_full_feature, grad_corr_feature, grad_anchor)
+
+    @staticmethod
+    def symbolic(g, mask, bbox):
+        return g.op("siamese::anchor_patchs", mask, bbox) 
+
+
+class AnchorPatchs(nn.Module):
+    def __init__(self, size):
+        super(AnchorPatchs, self).__init__()
+
+    def forward(self, full_feature, corr_feature, anchor):
+        # p0, p1, p2, p3 = AnchorPatchsFunction.apply(full_feature, corr_feature, anchor)
+        return AnchorPatchsFunction.apply(full_feature, corr_feature, anchor)
 
 
 class DepthCorr(nn.Module):
@@ -399,8 +525,7 @@ class ResDownS(nn.Module):
         # x.size() -- [1, 1024, 15, 15]
         x = self.downsample(x)
         # x.size() -- [1, 256, 15, 15]
-
-        # xxxx6666 siamese::down_sample(x) ==> return x
+        # xxxx8888
         if x.size(3) < 20:
             l = 4
             r = -4
@@ -668,7 +793,12 @@ class SiameseTemplate(nn.Module):
         z_crop = self.subwindow(image.cpu(), target.cpu()).to(image.device)
         # z_crop.shape -- [1, 3, 127, 127], format range: [0, 255]
         full_feature, template_feature = self.features(z_crop)
-        return template_feature  # [1, 256, 7, 7]
+        # template_feature.size() -- [1, 256, 15, 15]
+        # Continue sample down
+        #     l = 4
+        #     r = -4
+        #     x = x[:, :, l:r, l:r]
+        return template_feature[:, :, 4:12, 4:12]  # [1, 256, 7, 7]
 
     def load_weights(self, path):
         """Load model weights."""
@@ -812,9 +942,9 @@ class SiameseTracker(nn.Module):
         anchor_dc = (anchor_c - base_size / 2) * config_stride
         # Foreground box
         fg_box = [
-            e_center[0] + anchor_dc * s,
-            e_center[1] + anchor_dr * s,
-            s * self.template_size,
+            e_center[0] + anchor_dc * s,    # col
+            e_center[1] + anchor_dr * s,    # row
+            s * self.template_size,         # 
             s * self.template_size,
         ]
 
@@ -838,7 +968,7 @@ class SiameseTracker(nn.Module):
         rpn_pred_mask = self.refine_model(
             full_feature, corr_feature, anchor_r, anchor_c
         )
-        mask = rpn_pred_mask.sigmoid().view(self.template_size, self.template_size)
+        mask = rpn_pred_mask.sigmoid().view(1, 1, self.template_size, self.template_size)
 
         bg_box = self.anchor_bgbox(anchor_r, anchor_c, target_e)
         mask_in_img = self.crop_back(mask, bg_box)
@@ -867,8 +997,8 @@ class SiameseTracker(nn.Module):
         score = score[:, 1]  # Only use fg score, drop out bg score
         return score
 
-    # xxxx6666 siamese::get_theta
-    def get_theta(self, mask, bbox):
+    # xxxx6666 siamese::affine_theta
+    def affine_theta(self, mask, bbox):
         """
         https://github.com/jwyang/faster-rcnn.pytorch/blob/master/lib/model/utils/net_utils.py
         affine input: (x1,y1,x2,y2)
@@ -884,8 +1014,8 @@ class SiameseTracker(nn.Module):
         y1 = bbox[1]
         x2 = bbox[0] + bbox[2]
         y2 = bbox[1] + bbox[3]
-        W = mask.shape[0]  # mask width
-        H = mask.shape[1]  # mask height
+        H = mask.shape[2]  # mask height
+        W = mask.shape[3]  # mask width
         a = float((x2 - x1) / (W - 1))
         c = float((x1 + x2 - W + 1) / (W - 1))
         b = float((y2 - y1) / (H - 1))
@@ -900,16 +1030,16 @@ class SiameseTracker(nn.Module):
         return theta
 
     def crop_back(self, mask, bbox):
-        theta = self.get_theta(mask, bbox)
+        # mask.size() -- [1, 1, 127, 127]
+
+        theta = self.affine_theta(mask, bbox)
         theta = theta.unsqueeze(0)
 
         size = (1, 1, self.image_height, self.image_width)
         grid = F.affine_grid(theta, size, align_corners=False).to(mask.device)
 
-        input = mask.unsqueeze(0).unsqueeze(0)
-        # input.size() -- [1, 1, 127, 127]
         output = F.grid_sample(
-            input, grid, mode="bilinear", align_corners=True, padding_mode="zeros"
+            mask, grid, mode="bilinear", align_corners=True, padding_mode="zeros"
         )
         output = output.squeeze(0).squeeze(0)
 
@@ -998,3 +1128,5 @@ if __name__ == "__main__":
         output = model(torch.randn(1, 3, 1024, 1024), torch.Tensor([240, 330, 280, 180]))
 
     print(output)
+
+    pdb.set_trace()

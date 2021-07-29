@@ -89,7 +89,7 @@ class SubWindowFunction(Function):
         return g.op("siamese::sub_window", input, target) 
 
 
-class SubWindow(torch.nn.Module):
+class SubWindow(nn.Module):
     # def __init__(self):
     #     super(SubWindow, self).__init__()
 
