@@ -16,6 +16,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Function
+
+import os
 import math
 import numpy as np
 import pdb
@@ -23,6 +26,8 @@ from typing import List, Tuple, Optional
 
 from torch.onnx.symbolic_helper import parse_args
 from torch.onnx.symbolic_registry import register_op
+
+import siamese_cpp
 
 # Only for typing annotations
 Tensor = torch.Tensor
@@ -105,6 +110,39 @@ def conv2d_dw_group(x, kernel):
     out = out.view(batch, channel, out.size(2), out.size(3))
     # out.size() -- [1, 256, 25, 25]
     return out
+
+
+class SubWindowFunction(Function):
+    @staticmethod
+    def forward(ctx, input, target):
+        ctx.save_for_backward(input, target)        
+        output = siamese_cpp.sub_window(input, target)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, target = ctx.saved_tensors
+
+        # Set grad as 1.0
+        grad_input = torch.ones_like(input)
+        grad_pos = torch.ones_like(target)
+
+        return (grad_input, grad_pos)
+
+    @staticmethod
+    def symbolic(g, input, target):
+        return g.op("siamese::sub_window", input, target) 
+
+
+class SubWindow(nn.Module):
+    def __init__(self, size):
+        super(SubWindow, self).__init__()
+        self.size = size # final size
+
+    def forward(self, input, target):
+        patch =  SubWindowFunction.apply(input, target)
+        # zoom in/out patch to (size, size)
+        return F.interpolate(patch, size=(self.size, self.size), mode="nearest")
 
 
 class DepthCorr(nn.Module):
@@ -616,6 +654,34 @@ def generate_anchor(cfg, score_size):
     return anchor
 
 
+class SiameseTemplate(nn.Module):
+    '''Limition: SubWindow only support CPU.'''
+
+    def __init__(self):
+        super(SiameseTemplate, self).__init__()
+
+        self.subwindow = SubWindow(127)
+        self.features = ResnetDown()
+        self.load_weights("models/image_siammask.pth")
+
+    def forward(self, image, target):
+        z_crop = self.subwindow(image.cpu(), target.cpu()).to(image.device)
+        # z_crop.shape -- [1, 3, 127, 127], format range: [0, 255]
+        full_feature, template_feature = self.features(z_crop)
+        return template_feature  # [1, 256, 7, 7]
+
+    def load_weights(self, path):
+        """Load model weights."""
+        if not os.path.exists(path):
+            print("File '{}' does not exist.".format(path))
+            return
+        state_dict = torch.load(path, map_location=lambda storage, loc: storage)
+        target_state_dict = self.state_dict()
+        for n, p in state_dict.items():
+            if n in target_state_dict.keys():
+                target_state_dict[n].copy_(p)
+
+
 class SiameseTracker(nn.Module):
     def __init__(self, device="cpu"):
         super(SiameseTracker, self).__init__()
@@ -879,7 +945,7 @@ class SiameseTracker(nn.Module):
 
         return anchor_r, anchor_c, lr, best_bbox
 
-    # xxxx6666 TrackerTemplate(reference, target) ==> template_feature
+    # xxxx6666 SiameseTemplate(reference, target) ==> template_feature
     def forward(self, image, target: Optional[Tensor]):
         """image: Tensor (1x3xHxW format, range: 0, 255, uint8"""
 
@@ -920,3 +986,15 @@ class SiameseTracker(nn.Module):
         self.target_clamp()
 
         return target_mask
+
+
+if __name__ == "__main__":
+    model = SiameseTemplate()
+    model = model.eval()
+
+    print(model)
+
+    with torch.no_grad():
+        output = model(torch.randn(1, 3, 1024, 1024), torch.Tensor([240, 330, 280, 180]))
+
+    print(output)
