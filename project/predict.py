@@ -19,6 +19,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from model import get_model, model_device, model_setenv
+from model_helper import SiameseTemplate
 
 if __name__ == "__main__":
     """Predict."""
@@ -50,6 +51,12 @@ if __name__ == "__main__":
     model = model.to(device)
     model.eval()
 
+    temp_model = SiameseTemplate()
+    temp_model = temp_model.to(device)
+    temp_model.eval()
+
+
+
     # print(model)
     # print("Torch building ...")
     # script_model = torch.jit.script(model)
@@ -57,6 +64,20 @@ if __name__ == "__main__":
 
     image_filenames = sorted(glob.glob(args.input))
     progress_bar = tqdm(total=len(image_filenames))
+
+
+    # Get template from first frame 
+    image = Image.open(image_filenames[0]).convert("RGB")
+    input_tensor = totensor(image).unsqueeze(0).to(device)
+    input_tensor = input_tensor * 255.0
+
+    x, y, h, w = 300, 100, 280, 180
+    r, c = y + h / 2, x + w / 2
+    target = torch.Tensor([r, c, h, w])
+    with torch.no_grad():
+        template = temp_model(input_tensor, target)
+
+    pdb.set_trace()
 
     spend_time = 0
     for index, filename in enumerate(image_filenames):
@@ -69,15 +90,10 @@ if __name__ == "__main__":
 
         input_tensor = input_tensor * 255.0
 
-        if index == 0:
-            x, y, h, w = 300, 100, 280, 180
-            r, c = y + h / 2, x + w / 2
-            target = torch.IntTensor([r, c, h, w])
-        else:
-            target = None
-
         with torch.no_grad():
-            mask = model(input_tensor, target).squeeze()
+            mask = model(input_tensor, template, target).squeeze()
+
+        pdb.set_trace()
 
         if input_tensor.size(2) == mask.size(0) and input_tensor.size(3) == mask.size(
             1

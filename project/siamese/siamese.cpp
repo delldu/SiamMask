@@ -209,6 +209,32 @@ torch::Tensor best_anchor(const torch::Tensor &score, const torch::Tensor &bbox,
   target_data[3] =
       target_data[3] * (1.0 - best_lr) + scale_best_bbox_data[2] * best_lr; // w
 
+  // Target clamp
+  // if (target_data[0] < 0) {
+  //   target_data[0] = 0;
+  // }
+  // if (target_data[0] >= image_height) {
+  //   target_data[0] = image_height - 1;
+  // }
+  // if (target_data[1] < 0) {
+  //   target_data[1] = 0;
+  // }
+  // if (target_data[1] >= image_width) {
+  //   target_data[1] = image_width - 1;
+  // }
+  // if (target_data[2] < 10) {
+  //   target_data[2] = 10;
+  // }
+  // if (target_data[2] >= image_height) {
+  //   target_data[2] = image_height - 1;
+  // }
+  // if (target_data[3] < 10) {
+  //   target_data[3] = 10;
+  // }
+  // if (target_data[3] >= image_height) {
+  //   target_data[3] = image_height - 1;
+  // }
+
   return anchor;
 }
 
