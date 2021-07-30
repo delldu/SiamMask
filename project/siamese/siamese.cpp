@@ -1,14 +1,37 @@
+/************************************************************************************
+***
+***    Copyright Dell 2021, All Rights Reserved.
+***
+***    File Author: Dell, 2021年 07月 17日
+***
+************************************************************************************/
+
 #include <iostream>
 #include <torch/extension.h>
+
+// Anchor layout: 25x25x5
+#define ANCHOR_NUMBERS 25
 
 #define TEMPLATE_SIZE 127
 #define INSTANCE_SIZE 255
 
-int64_t get_scale_size(int64_t h, int64_t w) {
+namespace F = torch::nn::functional;
+
+float get_scale_size(float h, float w) {
   double pad = (w + h) * 0.5;
   double sz2 = (w + pad) * (h + pad);
 
-  return (int64_t)sqrt(sz2);
+  return (float)sqrt(sz2);
+}
+
+torch::Tensor get_scale_tensor(const torch::Tensor &h, const torch::Tensor &w) {
+  torch::Tensor pad = (h + w) * 0.5;
+  torch::Tensor sz2 = (h + pad) * (w + pad);
+  return torch::sqrt(sz2);
+}
+
+torch::Tensor get_max_change(const torch::Tensor &r) {
+  return torch::max(r, 1.0 / r);
 }
 
 std::vector<int64_t> get_range_pad(int64_t y, int64_t d, int64_t max) {
@@ -36,9 +59,7 @@ torch::Tensor sub_window(const torch::Tensor &image,
   float *data = target.data_ptr<float>();
   int64_t rc = (int64_t)data[0];
   int64_t cc = (int64_t)data[1];
-  int64_t h = (int64_t)data[2];
-  int64_t w = (int64_t)data[3];
-  int64_t e = get_scale_size(h, w);
+  int64_t e = (int64_t)get_scale_size(data[2], data[3]); // h, w
 
   int64_t height = (int64_t)image.size(2);
   int64_t width = (int64_t)image.size(2);
@@ -48,7 +69,6 @@ torch::Tensor sub_window(const torch::Tensor &image,
   std::vector<int64_t> left_right_pad = get_range_pad(cc, e, width);
 
   // Padding, F.pad(image, (left_pad, right_pad, top_pad, bottom_pad))
-  namespace F = torch::nn::functional;
   std::vector<int64_t> padding;
   padding.push_back(left_right_pad.at(2)); // left
   padding.push_back(left_right_pad.at(3)); // right
@@ -67,34 +87,34 @@ torch::Tensor sub_window(const torch::Tensor &image,
   return patch;
 }
 
-// def anchor_bgbox(self, anchor_r, anchor_c, target_e):
-//     s = target_e / self.instance_size
-//     # e-target center: x, y format
-//     e_center = [self.target_cc - target_e / 2, self.target_rc - target_e / 2]
-//     # Anchor e_box center
-//     base_size = 8  # self.config["base_size"]
-//     config_stride = 8  # self.config["stride"]
-//     anchor_dr = (anchor_r - base_size / 2) * config_stride
-//     anchor_dc = (anchor_c - base_size / 2) * config_stride
-//     # Foreground box
-//     fg_box = [
-//         e_center[0] + anchor_dc * s,
-//         e_center[1] + anchor_dr * s,
-//         s * self.template_size,
-//         s * self.template_size,
-//     ]
+torch::Tensor anchor_bgbox(const torch::Tensor &image,
+                           const torch::Tensor &target,
+                           const torch::Tensor &anchor) {
+  float image_height = (float)image.size(2);
+  float image_width = (float)image.size(3);
 
-//     s = self.instance_size / target_e
-//     bg_box = [
-//         int(-fg_box[0] * s),
-//         int(-fg_box[1] * s),
-//         int(self.image_width * s),
-//         int(self.image_height * s),
-//     ]
-//     return bg_box
-torch::Tensor anchor_bgbox(const torch::Tensor &anchor,
-                           const torch::Tensor &target) {
+  float *target_data = target.data_ptr<float>();
+  float target_rc = target_data[0];
+  float target_cc = target_data[1];
+  float target_e = get_scale_size(target_data[2] /*h*/, target_data[3] /*w*/);
+
+  float *anchor_data = anchor.data_ptr<float>();
+  float anchor_dr =
+      (anchor_data[0] - 4.0) * 8.0 / INSTANCE_SIZE; // delta row, ratio
+  float anchor_dc =
+      (anchor_data[1] - 4.0) * 8.0 / INSTANCE_SIZE; // delta col, ratio
+
+  float rc = target_rc / target_e + anchor_dr -
+             0.5; // 0.5 move center from [0, 1.0] --> [-0.5, 0.5]
+  float cc = target_cc / target_e + anchor_dc - 0.5;
+
   torch::Tensor bgbox = torch::zeros({4}, torch::dtype(torch::kFloat32));
+  float *bgbox_data = bgbox.data_ptr<float>();
+
+  bgbox_data[0] = -cc * INSTANCE_SIZE;          // x
+  bgbox_data[1] = -rc * INSTANCE_SIZE;          // y
+  bgbox_data[2] = image_width * INSTANCE_SIZE;  // w
+  bgbox_data[3] = image_height * INSTANCE_SIZE; // h
 
   return bgbox;
 }
@@ -112,106 +132,114 @@ torch::Tensor affine_theta(const torch::Tensor &mask,
   //     [           H - 1         H - 1      ]
   //
 
-  torch::Tensor theta = torch::zeros({2, 6}, torch::dtype(torch::kFloat32));
-
   float *bbox_data = bbox.data_ptr<float>();
   float x1 = bbox_data[0];
   float y1 = bbox_data[1];
   float x2 = x1 + bbox_data[2];
   float y2 = y1 + bbox_data[3];
-
   float H = mask.size(2) - 1.0;
   float W = mask.size(3) - 1.0;
-  float a = (x2 - x1) / W;
-  float c = (x1 + x2 - W) / W;
-  float b = (y2 - y1) / H;
-  float d = (y1 + y2 - H) / H;
 
-  return torch::Tensor([ a, 0.0, c, 0.0, b, d ]).view(2, 3);
+  torch::Tensor theta = torch::zeros({2, 3}, torch::dtype(torch::kFloat32));
+  float *theta_data = theta.data_ptr<float>();
+  theta_data[0] = (x2 - x1) / W;
+  theta_data[1] = 0.0;
+  theta_data[2] = (x1 + x2 - W) / W;
+  theta_data[3] = 0.0;
+  theta_data[4] = (y2 - y1) / H;
+  theta_data[5] = (y1 + y2 - H) / H;
+
+  return theta;
 }
 
-// # xxxx6666, siamese::best_anchor(score, bbox, target) ==> [anchor_tensor,
-// new_target] def best_anchor(self, score, bbox, scale_x):
-//     # Size penalty
-//     # For scale_x=template_size/target_e, so template_h/w is virtual template
-//     size template_h = int(self.target_h * scale_x) template_w =
-//     int(self.target_w * scale_x) bbox_w = bbox[2, :] bbox_h = bbox[3, :] s_c
-//     = get_max_change(
-//         get_scale_tensor(bbox_w, bbox_h) / (get_scale_size(template_h,
-//         template_w))
-//     )  # scale penalty
-//     r_c = get_max_change(
-//         (self.target_w / self.target_h) / (bbox_w / bbox_h)
-//     )  # ratio penalty
-//     penalty = torch.exp(-(r_c * s_c - 1) * 0.04)  # penalty_k == 0.04
-//     penalty_score = penalty * score
+torch::Tensor best_anchor(const torch::Tensor &score, const torch::Tensor &bbox,
+                          torch::Tensor &target) {
 
-//     best_id = torch.argmax(penalty_score)
-//     lr = penalty[best_id] * score[best_id]
+  /* bbox format: bbox.size() -- [4, 3125]
+   *    x --- x1, x2, ...
+   *    y --- y1, y2, ...
+   *    w --- w1, w2, ...
+   *    h --- h1, h2, ...
+   */
+  torch::Tensor bbox_h = bbox.slice(0 /*dim*/, 3, 4); // bbox[3, :]
+  torch::Tensor bbox_w = bbox.slice(0 /*dim*/, 2, 3); // bbox[2, :]
 
-//     # Mask Branch
-//     left = best_id % (self.score_size * self.score_size)
-//     anchor_r = int(left // self.score_size)
-//     anchor_c = int(left % self.score_size)
-//     best_bbox = bbox[:, best_id] / scale_x
+  float *target_data = target.data_ptr<float>();
+  float target_r = target_data[2] / target_data[3];
+  float target_e = get_scale_size(target_data[2] /*h*/, target_data[3] /*w*/);
+  float template_h = TEMPLATE_SIZE * (target_data[2] / target_e);
+  float template_w = TEMPLATE_SIZE * (target_data[3] / target_e);
+  float template_e = get_scale_size(template_h, template_w);
 
-//     # anchor_r, anchor_c -- (12, 13), mask.size -- (127, 127)
+  // bbox size change from template
+  torch::Tensor s_c =
+      get_max_change(get_scale_tensor(bbox_h, bbox_w) / template_e);
+  // bbox h/w ratio change from target
+  torch::Tensor r_c = get_max_change((bbox_h / bbox_w) / target_r);
+  torch::Tensor penalty =
+      torch::exp(-(s_c * r_c - 1.0) * 0.04); // penalty_k == 0.04
+  torch::Tensor penalty_score = penalty * score;
+  torch::Tensor argmax = torch::argmax(penalty_score);
+  float *argmax_data = argmax.data_ptr<float>();
+  float *score_data = penalty_score.data_ptr<float>();
 
-//     return anchor_r, anchor_c, lr, best_bbox
+  int best_id = (int)argmax_data[0];
+  float best_lr = score_data[best_id];
 
-std::vector<torch::Tensor> best_anchor(const torch::Tensor &score,
-                                      const torch::Tensor &bbox,
-                                      const torch::Tensor &target) {
+  int left = best_id % (ANCHOR_NUMBERS * ANCHOR_NUMBERS);
+  int anchor_r = (int)(left / ANCHOR_NUMBERS);
+  int anchor_c = (int)(left % ANCHOR_NUMBERS);
+
+  // Save anchor
   torch::Tensor anchor = torch::zeros({2}, torch::dtype(torch::kFloat32));
-  torch::Tensor new_target = torch::zeros({4}, torch::dtype(torch::kFloat32));
+  float *anchor_data = anchor.data_ptr<float>();
+  anchor_data[0] = (float)anchor_r;
+  anchor_data[1] = (float)anchor_c;
 
-  return {anchor, new_target};
+  // Update target via scale_best_bbox
+  torch::Tensor best_bbox =
+      bbox.slice(1, best_id, best_id + 1); // bbox[:, bestid]
+  torch::Tensor scale_best_bbox = best_bbox / TEMPLATE_SIZE * target_e;
+  float *scale_best_bbox_data = scale_best_bbox.data_ptr<float>();
+
+  target_data[0] += scale_best_bbox_data[1]; // rc
+  target_data[1] += scale_best_bbox_data[0]; // cc
+  target_data[2] =
+      target_data[2] * (1.0 - best_lr) + scale_best_bbox_data[3] * best_lr; // h
+  target_data[3] =
+      target_data[3] * (1.0 - best_lr) + scale_best_bbox_data[2] * best_lr; // w
+
+  return anchor;
 }
 
-// siameses::anchor_patchs(full_feature, anchor_tensor) ==> [p0, p1, p2, p3]
 std::vector<torch::Tensor>
-anchor_patchs(const std::vector<torch::Tensor> &full_feature,
-              const torch::Tensor &corr_feature, const torch::Tensor &anchor) {
-  // torch::Tensor anchor = torch::zeros({2}, torch::dtype(torch::kFloat32));
-  // torch::Tensor new_target = torch::zeros({4},
-  // torch::dtype(torch::kFloat32));
-
-  // p0 = F.pad(f[0], [16, 16, 16, 16])[
-  //   :, :, 4 * anchor_r : 4 * anchor_r + 61, 4 * anchor_c : 4 * anchor_c + 61]
-  // p1 = F.pad(f[1], [8, 8, 8, 8])[
-  //     :, :, 2 * anchor_r : 2 * anchor_r + 31, 2 * anchor_c : 2 * anchor_c +
-  //     31]
-  // p2 = F.pad(f[2], [4, 4, 4, 4])[
-  //     :, :, anchor_r : anchor_r + 15, anchor_c : anchor_c + 15]
-
-  // p3 = corr_feature[:, :, anchor_r, anchor_c].view(-1, 256, 1, 1)
-
+anchor_patches(const std::vector<torch::Tensor> &full_feature,
+               const torch::Tensor &corr_feature, const torch::Tensor &anchor) {
   float *anchor_data = anchor.data_ptr<float>();
   int64_t anchor_r = (int64_t)anchor_data[0];
   int64_t anchor_c = (int64_t)anchor_data[1];
 
   torch::Tensor p0_pad =
       F::pad(full_feature.at(0),
-             F::PadFuncOptions([ 16, 16, 16, 16 ]).mode(torch::kReplicate));
+             F::PadFuncOptions({16, 16, 16, 16}).mode(torch::kReplicate));
   torch::Tensor p0 = p0_pad.slice(2 /*dim*/, 4 * anchor_r, 4 * anchor_r + 61)
                          .slice(3 /*dim*/, 4 * anchor_c, 4 * anchor_c + 61);
 
   torch::Tensor p1_pad =
       F::pad(full_feature.at(1),
-             F::PadFuncOptions([ 8, 8, 8, 8 ]).mode(torch::kReplicate));
+             F::PadFuncOptions({8, 8, 8, 8}).mode(torch::kReplicate));
   torch::Tensor p1 = p1_pad.slice(2 /*dim*/, 2 * anchor_r, 2 * anchor_r + 31)
                          .slice(3 /*dim*/, 2 * anchor_c, 2 * anchor_c + 31);
 
   torch::Tensor p2_pad =
       F::pad(full_feature.at(2),
-             F::PadFuncOptions([ 4, 4, 4, 4 ]).mode(torch::kReplicate));
+             F::PadFuncOptions({4, 4, 4, 4}).mode(torch::kReplicate));
   torch::Tensor p2 = p2_pad.slice(2 /*dim*/, 1 * anchor_r, 1 * anchor_r + 15)
                          .slice(3 /*dim*/, 1 * anchor_c, 1 * anchor_c + 15);
 
   torch::Tensor p3 =
       corr_feature.slice(2 /*dim*/, 1 * anchor_r, 1 * anchor_r + 15)
-          .slice(3 /*dim*/, 1 * anchor_c, 1 * anchor_c + 15)
-          .view(-1, 256, 1, 1);
+          .slice(3 /*dim*/, 1 * anchor_c, 1 * anchor_c + 15);
 
   return {p0, p1, p2, p3};
 }
@@ -221,5 +249,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("anchor_bgbox", anchor_bgbox, "Get Anchor Background Box");
   m.def("affine_theta", affine_theta, "Get Affine Theta");
   m.def("best_anchor", best_anchor, "Find Best Anchor");
-  m.def("anchor_patchs", anchor_patchs, "Get Anchor's Pyramid Features");
+  m.def("anchor_patches", anchor_patches, "Get Anchor's Pyramid Features");
 }

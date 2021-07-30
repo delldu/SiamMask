@@ -123,7 +123,7 @@ class SubWindowFunction(Function):
     def backward(ctx, grad_output):
         input, target = ctx.saved_tensors
 
-        # Set grad as 1.0
+        # Set gradient as 1.0
         grad_input = torch.ones_like(input)
         grad_target = torch.ones_like(target)
 
@@ -145,35 +145,36 @@ class SubWindow(nn.Module):
         return F.interpolate(patch, size=(self.size, self.size), mode="nearest")
 
 
-class AnchorBgBoxFunction(Function):
+class AnchorBgboxFunction(Function):
     @staticmethod
-    def forward(ctx, anchor, target):
-        ctx.save_for_backward(anchor, target)        
-        output = siamese_cpp.anchor_bgbox(anchor, target)
+    def forward(ctx, image, target, anchor):
+        ctx.save_for_backward(image, target, anchor)        
+        output = siamese_cpp.anchor_bgbox(image, target, anchor)
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        anchor, target = ctx.saved_tensors
+        image, target, anchor = ctx.saved_tensors
 
-        # Set grad as 1.0
-        grad_anchor = torch.ones_like(anchor)
+        # Set gradient as 1.0
+        grad_image = torch.ones_like(image)
         grad_target = torch.ones_like(target)
+        grad_anchor = torch.ones_like(anchor)
 
-        return (grad_anchor, grad_target)
+        return (grad_image, grad_target, grad_anchor)
 
     @staticmethod
-    def symbolic(g, anchor, target):
-        return g.op("siamese::anchor_bgbox", anchor, target) 
+    def symbolic(g, image, target, anchor):
+        return g.op("siamese::anchor_bgbox", image, target, anchor) 
 
 
-class AnchorBgBox(nn.Module):
-    def __init__(self, size):
-        super(AnchorBgBox, self).__init__()
+class AnchorBgbox(nn.Module):
+    def __init__(self):
+        super(AnchorBgbox, self).__init__()
 
-    def forward(self, anchor, target):
-        # bgbox =  AnchorBgBoxFunction.apply(anchor, target)
-        return AnchorBgBoxFunction.apply(anchor, target)
+    def forward(self, image, target, anchor):
+        # bgbox =  AnchorBgboxFunction.apply(image, target, anchor)
+        return AnchorBgboxFunction.apply(image, target, anchor)
 
 
 class AffineThetaFunction(Function):
@@ -187,11 +188,11 @@ class AffineThetaFunction(Function):
     def backward(ctx, grad_output):
         mask, bbox = ctx.saved_tensors
 
-        # Set grad as 1.0
-        grad_input = torch.ones_like(mask)
+        # Set gradient as 1.0
+        grad_mask = torch.ones_like(mask)
         grad_bbox = torch.ones_like(bbox)
 
-        return (grad_input, grad_bbox)
+        return (grad_mask, grad_bbox)
 
     @staticmethod
     def symbolic(g, mask, bbox):
@@ -199,7 +200,7 @@ class AffineThetaFunction(Function):
 
 
 class AffineTheta(nn.Module):
-    def __init__(self, size):
+    def __init__(self):
         super(AffineTheta, self).__init__()
 
     def forward(self, mask, bbox):
@@ -218,7 +219,7 @@ class BestAnchorFunction(Function):
     def backward(ctx, grad_output):
         score, bbox, target = ctx.saved_tensors
 
-        # Set grad as 1.0
+        # Set gradient as 1.0
         grad_score = torch.ones_like(score)
         grad_bbox = torch.ones_like(bbox)
         grad_target = torch.ones_like(target)
@@ -231,26 +232,26 @@ class BestAnchorFunction(Function):
 
 
 class BestAnchor(nn.Module):
-    def __init__(self, size):
+    def __init__(self):
         super(BestAnchor, self).__init__()
 
     def forward(self, score, bbox, target):
-        # anchor, new_target =  BestAnchorFunction.apply(score, bbox, target)
+        # anchor =  BestAnchorFunction.apply(score, bbox, target)
         return BestAnchorFunction.apply(score, bbox, target)
 
 
-# AnchorPatchs
-class AnchorPatchsFunction(Function):
+# AnchorPatches
+class AnchorPatchesFunction(Function):
     @staticmethod
     def forward(ctx, full_feature, corr_feature, anchor):
         ctx.save_for_backward(full_feature, corr_feature, anchor)        
-        return siamese_cpp.anchor_patchs(full_feature, corr_feature, anchor)
+        return siamese_cpp.anchor_patches(full_feature, corr_feature, anchor)
 
     @staticmethod
     def backward(ctx, grad_output):
         full_feature, corr_feature, anchor = ctx.saved_tensors
 
-        # Set grad as 1.0
+        # Set gradient as 1.0
         grad_full_feature = torch.ones_like(full_feature)
         grad_corr_feature = torch.ones_like(corr_feature)
         grad_anchor = torch.ones_like(anchor)
@@ -259,16 +260,16 @@ class AnchorPatchsFunction(Function):
 
     @staticmethod
     def symbolic(g, mask, bbox):
-        return g.op("siamese::anchor_patchs", mask, bbox) 
+        return g.op("siamese::anchor_patches", mask, bbox) 
 
 
-class AnchorPatchs(nn.Module):
-    def __init__(self, size):
-        super(AnchorPatchs, self).__init__()
+class AnchorPatches(nn.Module):
+    def __init__(self):
+        super(AnchorPatches, self).__init__()
 
     def forward(self, full_feature, corr_feature, anchor):
-        # p0, p1, p2, p3 = AnchorPatchsFunction.apply(full_feature, corr_feature, anchor)
-        return AnchorPatchsFunction.apply(full_feature, corr_feature, anchor)
+        # p0, p1, p2, p3 = AnchorPatchesFunction.apply(full_feature, corr_feature, anchor)
+        return AnchorPatchesFunction.apply(full_feature, corr_feature, anchor)
 
 
 class DepthCorr(nn.Module):
@@ -672,7 +673,7 @@ class Refine(nn.Module):
         # pos = (12, 12)
         p3 = corr_feature[:, :, anchor_r, anchor_c].view(-1, 256, 1, 1)
 
-        # xxxx6666 siameses::anchor_patchs(full_feature, anchor_tensor) ==> [p0, p1, p2, p3]
+        # xxxx6666 siameses::anchor_patches(full_feature, anchor_tensor) ==> [p0, p1, p2, p3]
 
         out = self.deconv(p3)
         out = self.post0(F.interpolate(self.h2(out) + self.v2(p2), size=(31, 31)))
@@ -905,7 +906,7 @@ class SiameseTracker(nn.Module):
         self.target_h = h
         self.target_w = w
 
-    # ==> include in best_match ...
+    # ==> include in best_anchor ...
     def target_clamp(self):
         self.target_rc = max(0, min(self.image_height, self.target_rc))
         self.target_cc = max(0, min(self.image_width, self.target_cc))
@@ -932,28 +933,19 @@ class SiameseTracker(nn.Module):
 
     # xxxx6666, siamese::anchor_bgbox(Anchor_tensor, target_tensor) ==> Box_Tensor
     def anchor_bgbox(self, anchor_r, anchor_c, target_e):
-        s = target_e / self.instance_size
-        # e-target center: x, y format
-        e_center = [self.target_cc - target_e / 2, self.target_rc - target_e / 2]
-        # Anchor e_box center
         base_size = 8  # self.config["base_size"]
         config_stride = 8  # self.config["stride"]
-        anchor_dr = (anchor_r - base_size / 2) * config_stride
-        anchor_dc = (anchor_c - base_size / 2) * config_stride
-        # Foreground box
-        fg_box = [
-            e_center[0] + anchor_dc * s,    # col
-            e_center[1] + anchor_dr * s,    # row
-            s * self.template_size,         # 
-            s * self.template_size,
-        ]
+        anchor_dr = (anchor_r - base_size / 2) * config_stride/self.instance_size
+        anchor_dc = (anchor_c - base_size / 2) * config_stride/self.instance_size
 
-        s = self.instance_size / target_e
+        rc = self.target_rc/target_e + anchor_dr - 0.5
+        cc = self.target_cc/target_e + anchor_dc - 0.5
+
         bg_box = [
-            int(-fg_box[0] * s),
-            int(-fg_box[1] * s),
-            int(self.image_width * s),
-            int(self.image_height * s),
+            int(-cc * self.instance_size),
+            int(-rc * self.instance_size),
+            int(self.image_width/target_e * self.instance_size),
+            int(self.image_height/target_e * self.instance_size),
         ]
         return bg_box
 
@@ -1045,25 +1037,27 @@ class SiameseTracker(nn.Module):
 
         return output
 
-    # xxxx6666, siamese::best_match(score, bbox, target) ==> [anchor_tensor, new_target]
-    def best_match(self, score, bbox, scale_x):
+    # xxxx6666, siamese::best_anchor(score, bbox, target) ==> [anchor_tensor, new_target]
+    def best_anchor(self, score, bbox, scale_x):
         # Size penalty
-        # For scale_x=template_size/target_e, so template_h/w is virtual template size
+        # scale_x=template_size/target_e
         template_h = int(self.target_h * scale_x)
         template_w = int(self.target_w * scale_x)
-        bbox_w = bbox[2, :]
-        bbox_h = bbox[3, :]
+        #template_e = get_scale_size(template_h, template_w)
+
+        bbox_h = bbox[2, :]
+        bbox_w = bbox[3, :]
         s_c = get_max_change(
-            get_scale_tensor(bbox_w, bbox_h) / (get_scale_size(template_h, template_w))
+            get_scale_tensor(bbox_h, bbox_w) / get_scale_size(template_h, template_w)
         )  # scale penalty
         r_c = get_max_change(
-            (self.target_w / self.target_h) / (bbox_w / bbox_h)
+            (self.target_h / self.target_w) / (bbox_h / bbox_w)
         )  # ratio penalty
         penalty = torch.exp(-(r_c * s_c - 1) * 0.04)  # penalty_k == 0.04
         penalty_score = penalty * score
 
         best_id = torch.argmax(penalty_score)
-        lr = penalty[best_id] * score[best_id]
+        lr = penalty_score[best_id]
 
         # Mask Branch
         left = best_id % (self.score_size * self.score_size)
@@ -1098,7 +1092,7 @@ class SiameseTracker(nn.Module):
 
         scale_x = self.template_size / target_e
         # target_e -- 457.27， scale_x -- 0.2777325006938416
-        anchor_r, anchor_c, lr, best_bbox = self.best_match(score, bbox, scale_x)
+        anchor_r, anchor_c, lr, best_bbox = self.best_anchor(score, bbox, scale_x)
 
         # xxxx6666, track_refine( ... anchor_tensor, target ...)
         target_mask = self.track_refine(
@@ -1106,7 +1100,7 @@ class SiameseTracker(nn.Module):
         )
 
         # Update target
-        # xxxx6666 absorb by best_match !!!
+        # xxxx6666 absorb by best_anchor !!!
         self.set_target(
             int(self.target_rc + best_bbox[1]),
             int(self.target_cc + best_bbox[0]),
