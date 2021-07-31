@@ -88,9 +88,10 @@ torch::Tensor sub_window(const torch::Tensor &image,
 
   return pad_data.slice(2, y1, y2 + 1).slice(3, x1, x2 + 1);
 }
-torch::Tensor anchor_bigbox(const torch::Tensor &image,
-                            const torch::Tensor &target,
-                            const torch::Tensor &anchor) {
+
+torch::Tensor anchor_bbox(const torch::Tensor &image,
+                          const torch::Tensor &target,
+                          const torch::Tensor &anchor) {
   float image_height = (float)image.size(2);
   float image_width = (float)image.size(3);
 
@@ -109,15 +110,15 @@ torch::Tensor anchor_bigbox(const torch::Tensor &image,
   float rc = target_rc / target_e + anchor_dr - 0.5;
   float cc = target_cc / target_e + anchor_dc - 0.5;
 
-  torch::Tensor bgbox = torch::zeros({4}, torch::dtype(torch::kFloat32));
-  float *bgbox_data = bgbox.data_ptr<float>();
+  torch::Tensor bbox = torch::zeros({4}, torch::dtype(torch::kFloat32));
+  float *bbox_data = bbox.data_ptr<float>();
 
-  bgbox_data[0] = -cc * INSTANCE_SIZE;                     // x
-  bgbox_data[1] = -rc * INSTANCE_SIZE;                     // y
-  bgbox_data[2] = image_width / target_e * INSTANCE_SIZE;  // w
-  bgbox_data[3] = image_height / target_e * INSTANCE_SIZE; // h
+  bbox_data[0] = -cc * INSTANCE_SIZE;                     // x
+  bbox_data[1] = -rc * INSTANCE_SIZE;                     // y
+  bbox_data[2] = image_width / target_e * INSTANCE_SIZE;  // w
+  bbox_data[3] = image_height / target_e * INSTANCE_SIZE; // h
 
-  return bgbox;
+  return bbox;
 }
 
 torch::Tensor affine_theta(const torch::Tensor &mask,
@@ -259,7 +260,7 @@ anchor_patches(const std::vector<torch::Tensor> &full_feature,
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("sub_window", sub_window, "Subwindow Function");
-  m.def("anchor_bigbox", anchor_bigbox, "Get Anchor Background Box");
+  m.def("anchor_bbox", anchor_bbox, "Get Anchor Bunding Box");
   m.def("affine_theta", affine_theta, "Get Affine Theta");
   m.def("best_anchor", best_anchor, "Find Best Anchor");
   m.def("anchor_patches", anchor_patches, "Get Anchor's Pyramid Features");

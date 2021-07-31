@@ -145,11 +145,11 @@ class SubWindow(nn.Module):
         return F.interpolate(patch, size=(self.size, self.size), mode="nearest")
 
 
-class AnchorBigboxFunction(Function):
+class AnchorBboxFunction(Function):
     @staticmethod
     def forward(ctx, image, target, anchor):
         ctx.save_for_backward(image, target, anchor)
-        output = siamese_cpp.anchor_bigbox(image, target, anchor)
+        output = siamese_cpp.anchor_bbox(image, target, anchor)
         return output
 
     @staticmethod
@@ -165,15 +165,15 @@ class AnchorBigboxFunction(Function):
 
     @staticmethod
     def symbolic(g, image, target, anchor):
-        return g.op("siamese::anchor_bigbox", image, target, anchor)
+        return g.op("siamese::anchor_bbox", image, target, anchor)
 
 
-class AnchorBigbox(nn.Module):
+class AnchorBbox(nn.Module):
     def __init__(self):
-        super(AnchorBigbox, self).__init__()
+        super(AnchorBbox, self).__init__()
 
     def forward(self, image, target, anchor):
-        return AnchorBigboxFunction.apply(image, target, anchor)
+        return AnchorBboxFunction.apply(image, target, anchor)
 
 
 class AffineThetaFunction(Function):
@@ -783,7 +783,7 @@ class SiameseTracker(nn.Module):
         self.affine_theta = AffineTheta()
         self.best_anchor = BestAnchor()
         self.subwindow = SubWindow(self.instance_size)
-        self.anchor_bigbox = AnchorBigbox()
+        self.anchor_bbox = AnchorBbox()
 
     def reset_mode(self, is_training=False):
         if is_training:
@@ -852,7 +852,7 @@ class SiameseTracker(nn.Module):
         anchor_mask = anchor_mask.sigmoid().view(
             1, 1, self.template_size, self.template_size
         )
-        anchor_bbox = self.anchor_bigbox(image, big_target, anchor)
+        anchor_bbox = self.anchor_bbox(image, big_target, anchor)
 
         final_mask = self.refine_mask(image, anchor_mask, anchor_bbox)
         # anchor_mask.shape -- (1, 1, 127, 127)
@@ -864,19 +864,3 @@ class SiameseTracker(nn.Module):
         new_target = new_target.clamp(0, max(image.size(2), image.size(3)))
 
         return target_mask, new_target
-
-
-if __name__ == "__main__":
-    model = SiameseTemplate()
-    model = model.eval()
-
-    print(model)
-
-    with torch.no_grad():
-        output = model(
-            torch.randn(1, 3, 1024, 1024), torch.Tensor([240, 330, 280, 180])
-        )
-
-    print(output)
-
-    pdb.set_trace()
