@@ -77,8 +77,6 @@ if __name__ == "__main__":
     with torch.no_grad():
         template = temp_model(input_tensor, target)
 
-    pdb.set_trace()
-
     spend_time = 0
     for index, filename in enumerate(image_filenames):
         progress_bar.update(1)
@@ -91,10 +89,9 @@ if __name__ == "__main__":
         input_tensor = input_tensor * 255.0
 
         with torch.no_grad():
-            mask = model(input_tensor, template, target).squeeze()
+            mask, target = model(input_tensor, template, target)
 
-        pdb.set_trace()
-
+        print("mask.size: ", mask.size(), "target:", target)
         if input_tensor.size(2) == mask.size(0) and input_tensor.size(3) == mask.size(
             1
         ):

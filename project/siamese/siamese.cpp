@@ -16,6 +16,7 @@
 #define INSTANCE_SIZE 255
 
 namespace F = torch::nn::functional;
+#define CheckPoint(fmt, arg...) printf("# CheckPoint: %d(%s): " fmt "\n", (int)__LINE__, __FILE__, ##arg)
 
 float get_scale_size(float h, float w) {
   double pad = (w + h) * 0.5;
@@ -176,64 +177,48 @@ torch::Tensor best_anchor(const torch::Tensor &score, const torch::Tensor &bbox,
       get_max_change(get_scale_tensor(bbox_h, bbox_w) / template_e);
   // bbox h/w ratio change from target
   torch::Tensor r_c = get_max_change((bbox_h / bbox_w) / target_r);
+
   torch::Tensor penalty =
       torch::exp(-(s_c * r_c - 1.0) * 0.04); // penalty_k == 0.04
-  torch::Tensor penalty_score = penalty * score;
-  torch::Tensor argmax = torch::argmax(penalty_score);
-  float *argmax_data = argmax.data_ptr<float>();
-  float *score_data = penalty_score.data_ptr<float>();
+  torch::Tensor penalty_score = (penalty * score).cpu();
 
-  int best_id = (int)argmax_data[0];
-  float best_lr = score_data[best_id];
+  torch::Tensor argmax = torch::argmax(penalty_score).cpu();
+  int64_t *argmax_data = argmax.data_ptr<int64_t>();
+  float *penalty_score_data = penalty_score.data_ptr<float>();
 
-  int left = best_id % (ANCHOR_NUMBERS * ANCHOR_NUMBERS);
-  int anchor_r = (int)(left / ANCHOR_NUMBERS);
-  int anchor_c = (int)(left % ANCHOR_NUMBERS);
+  int64_t best_id = argmax_data[0];
+  float best_lr = penalty_score_data[best_id];
+
+  int64_t left = best_id % (ANCHOR_NUMBERS * ANCHOR_NUMBERS);
+  int64_t anchor_r = (int64_t)(left / ANCHOR_NUMBERS);
+  int64_t anchor_c = (int64_t)(left % ANCHOR_NUMBERS);
+
+  // Scale best bbox for new target
+  torch::Tensor best_bbox =
+      bbox.slice(1, best_id, best_id + 1).cpu(); // bbox[:, bestid]
+  torch::Tensor scale_best_bbox = best_bbox / TEMPLATE_SIZE * target_e;
+  float *scale_best_bbox_data = scale_best_bbox.data_ptr<float>();
+
+  float new_target_rc = target_data[0] + scale_best_bbox_data[1]; // rc
+  float new_target_cc = target_data[1] + scale_best_bbox_data[0]; // cc
+  float new_target_h = target_data[2] * (1.0 - best_lr) + scale_best_bbox_data[3] * best_lr; // h
+  float new_target_w = target_data[3] * (1.0 - best_lr) + scale_best_bbox_data[2] * best_lr; // w
+  if (new_target_h < 10)
+    new_target_h = 10;
+  if (new_target_w < 10)
+    new_target_w = 10;
 
   // Save anchor
-  torch::Tensor anchor = torch::zeros({2}, torch::dtype(torch::kFloat32));
+  torch::Tensor anchor = torch::zeros({6}, torch::dtype(torch::kFloat32));
   float *anchor_data = anchor.data_ptr<float>();
   anchor_data[0] = (float)anchor_r;
   anchor_data[1] = (float)anchor_c;
 
-  // Update target via scale_best_bbox
-  torch::Tensor best_bbox =
-      bbox.slice(1, best_id, best_id + 1); // bbox[:, bestid]
-  torch::Tensor scale_best_bbox = best_bbox / TEMPLATE_SIZE * target_e;
-  float *scale_best_bbox_data = scale_best_bbox.data_ptr<float>();
-
-  target_data[0] += scale_best_bbox_data[1]; // rc
-  target_data[1] += scale_best_bbox_data[0]; // cc
-  target_data[2] =
-      target_data[2] * (1.0 - best_lr) + scale_best_bbox_data[3] * best_lr; // h
-  target_data[3] =
-      target_data[3] * (1.0 - best_lr) + scale_best_bbox_data[2] * best_lr; // w
-
-  // Target clamp
-  // if (target_data[0] < 0) {
-  //   target_data[0] = 0;
-  // }
-  // if (target_data[0] >= image_height) {
-  //   target_data[0] = image_height - 1;
-  // }
-  // if (target_data[1] < 0) {
-  //   target_data[1] = 0;
-  // }
-  // if (target_data[1] >= image_width) {
-  //   target_data[1] = image_width - 1;
-  // }
-  // if (target_data[2] < 10) {
-  //   target_data[2] = 10;
-  // }
-  // if (target_data[2] >= image_height) {
-  //   target_data[2] = image_height - 1;
-  // }
-  // if (target_data[3] < 10) {
-  //   target_data[3] = 10;
-  // }
-  // if (target_data[3] >= image_height) {
-  //   target_data[3] = image_height - 1;
-  // }
+  // For new target
+  anchor_data[2] = new_target_rc;
+  anchor_data[3] = new_target_cc;
+  anchor_data[4] = new_target_h;
+  anchor_data[5] = new_target_w;
 
   return anchor;
 }
@@ -263,9 +248,10 @@ anchor_patches(const std::vector<torch::Tensor> &full_feature,
   torch::Tensor p2 = p2_pad.slice(2 /*dim*/, 1 * anchor_r, 1 * anchor_r + 15)
                          .slice(3 /*dim*/, 1 * anchor_c, 1 * anchor_c + 15);
 
+  // p3 = corr_feature[:, :, anchor_r, anchor_c].view(-1, 256, 1, 1)
   torch::Tensor p3 =
-      corr_feature.slice(2 /*dim*/, 1 * anchor_r, 1 * anchor_r + 15)
-          .slice(3 /*dim*/, 1 * anchor_c, 1 * anchor_c + 15);
+      corr_feature.slice(2 /*dim*/, anchor_r, anchor_r + 1)
+          .slice(3 /*dim*/, anchor_c, anchor_c + 1);
 
   return {p0, p1, p2, p3};
 }
