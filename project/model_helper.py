@@ -115,7 +115,7 @@ def conv2d_dw_group(x, kernel):
 class SubWindowFunction(Function):
     @staticmethod
     def forward(ctx, input, target):
-        ctx.save_for_backward(input, target)        
+        ctx.save_for_backward(input, target)
         output = siamese_cpp.sub_window(input, target)
         return output
 
@@ -131,16 +131,16 @@ class SubWindowFunction(Function):
 
     @staticmethod
     def symbolic(g, input, target):
-        return g.op("siamese::sub_window", input, target) 
+        return g.op("siamese::sub_window", input, target)
 
 
 class SubWindow(nn.Module):
     def __init__(self, size):
         super(SubWindow, self).__init__()
-        self.size = size # final size
+        self.size = size  # final size
 
     def forward(self, input, target):
-        patch =  SubWindowFunction.apply(input, target)
+        patch = SubWindowFunction.apply(input, target)
         # zoom in/out patch to (size, size)
         return F.interpolate(patch, size=(self.size, self.size), mode="nearest")
 
@@ -148,7 +148,7 @@ class SubWindow(nn.Module):
 class AnchorBigboxFunction(Function):
     @staticmethod
     def forward(ctx, image, target, anchor):
-        ctx.save_for_backward(image, target, anchor)        
+        ctx.save_for_backward(image, target, anchor)
         output = siamese_cpp.anchor_bigbox(image, target, anchor)
         return output
 
@@ -165,7 +165,7 @@ class AnchorBigboxFunction(Function):
 
     @staticmethod
     def symbolic(g, image, target, anchor):
-        return g.op("siamese::anchor_bigbox", image, target, anchor) 
+        return g.op("siamese::anchor_bigbox", image, target, anchor)
 
 
 class AnchorBigbox(nn.Module):
@@ -179,7 +179,7 @@ class AnchorBigbox(nn.Module):
 class AffineThetaFunction(Function):
     @staticmethod
     def forward(ctx, mask, bbox):
-        ctx.save_for_backward(mask, bbox)        
+        ctx.save_for_backward(mask, bbox)
         output = siamese_cpp.affine_theta(mask, bbox)
         return output
 
@@ -195,7 +195,7 @@ class AffineThetaFunction(Function):
 
     @staticmethod
     def symbolic(g, mask, bbox):
-        return g.op("siamese::affine_theta", mask, bbox) 
+        return g.op("siamese::affine_theta", mask, bbox)
 
 
 class AffineTheta(nn.Module):
@@ -211,7 +211,7 @@ class AffineTheta(nn.Module):
 class BestAnchorFunction(Function):
     @staticmethod
     def forward(ctx, score, bbox, target):
-        ctx.save_for_backward(score, bbox, target)        
+        ctx.save_for_backward(score, bbox, target)
         return siamese_cpp.best_anchor(score, bbox, target)
 
     @staticmethod
@@ -227,7 +227,7 @@ class BestAnchorFunction(Function):
 
     @staticmethod
     def symbolic(g, score, bbox, target):
-        return g.op("siamese::best_anchor", score, bbox, target) 
+        return g.op("siamese::best_anchor", score, bbox, target)
 
 
 class BestAnchor(nn.Module):
@@ -243,7 +243,7 @@ class BestAnchor(nn.Module):
 class AnchorPatchesFunction(Function):
     @staticmethod
     def forward(ctx, full_feature, corr_feature, anchor):
-        ctx.save_for_backward(full_feature, corr_feature, anchor)        
+        ctx.save_for_backward(full_feature, corr_feature, anchor)
         output = siamese_cpp.anchor_patches(full_feature, corr_feature, anchor)
         return output[0], output[1], output[2], output[3]
 
@@ -260,7 +260,7 @@ class AnchorPatchesFunction(Function):
 
     @staticmethod
     def symbolic(g, mask, bbox):
-        return g.op("siamese::anchor_patches", mask, bbox) 
+        return g.op("siamese::anchor_patches", mask, bbox)
 
 
 class AnchorPatches(nn.Module):
@@ -714,7 +714,7 @@ def generate_anchor(cfg, score_size):
 
 
 class SiameseTemplate(nn.Module):
-    '''Limition: SubWindow only support CPU.'''
+    """Limition: SubWindow only support CPU."""
 
     def __init__(self):
         super(SiameseTemplate, self).__init__()
@@ -757,9 +757,7 @@ class SiameseTracker(nn.Module):
         }
         self.anchor_num = len(self.config["ratios"]) * len(self.config["scales"])
         self.score_size = 25
-        self.anchor = torch.from_numpy(
-            generate_anchor(self.config, self.score_size)
-        )
+        self.anchor = torch.from_numpy(generate_anchor(self.config, self.score_size))
         # 'anchor':([[-96., -96., 104.,  32.],
         #        [-88., -96., 104.,  32.],
         #        [-80., -96., 104.,  32.],
@@ -782,8 +780,8 @@ class SiameseTracker(nn.Module):
         self.reset_mode(is_training=False)
 
         # Call c++ ...
-        self.affine_theta = AffineTheta();
-        self.best_anchor = BestAnchor();
+        self.affine_theta = AffineTheta()
+        self.best_anchor = BestAnchor()
         self.subwindow = SubWindow(self.instance_size)
         self.anchor_bigbox = AnchorBigbox()
 
@@ -797,14 +795,13 @@ class SiameseTracker(nn.Module):
             self.mask_model.eval()
             self.refine_model.eval()
 
-
     def refine_mask(self, image, mask, bbox):
         # mask.size() -- [1, 1, 127, 127]
 
         theta = self.affine_theta(mask, bbox)
         theta = theta.unsqueeze(0).to(mask.device)
 
-        outmask = image[:, 0:1, :, :] # ==> Get size
+        outmask = image[:, 0:1, :, :]  # ==> Get size
         grid = F.affine_grid(theta, outmask.size(), align_corners=False).to(mask.device)
 
         output = F.grid_sample(
@@ -834,9 +831,9 @@ class SiameseTracker(nn.Module):
 
     def forward(self, image, template, target):
         """image: Tensor (1x3xHxW format, range: 0, 255, uint8
-           template --[1, 256, 7, 7]
+        template --[1, 256, 7, 7]
         """
-        big_target = torch.cat((target[0:2], 2.0*target[2:4]), dim=0)
+        big_target = torch.cat((target[0:2], 2.0 * target[2:4]), dim=0)
 
         x_crop = self.subwindow(image, big_target)  # x_crop.size -- [1, 3, 255, 255]
         full_feature, search_feature = self.features(x_crop)
@@ -852,7 +849,9 @@ class SiameseTracker(nn.Module):
 
         # Track refine ...
         anchor_mask = self.refine_model(full_feature, corr_feature, anchor)
-        anchor_mask = anchor_mask.sigmoid().view(1, 1, self.template_size, self.template_size)
+        anchor_mask = anchor_mask.sigmoid().view(
+            1, 1, self.template_size, self.template_size
+        )
         anchor_bbox = self.anchor_bigbox(image, big_target, anchor)
 
         final_mask = self.refine_mask(image, anchor_mask, anchor_bbox)
@@ -866,6 +865,7 @@ class SiameseTracker(nn.Module):
 
         return target_mask, new_target
 
+
 if __name__ == "__main__":
     model = SiameseTemplate()
     model = model.eval()
@@ -873,7 +873,9 @@ if __name__ == "__main__":
     print(model)
 
     with torch.no_grad():
-        output = model(torch.randn(1, 3, 1024, 1024), torch.Tensor([240, 330, 280, 180]))
+        output = model(
+            torch.randn(1, 3, 1024, 1024), torch.Tensor([240, 330, 280, 180])
+        )
 
     print(output)
 

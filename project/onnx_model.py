@@ -116,7 +116,6 @@ if __name__ == "__main__":
         # print("Building OK.")
         # pdb.set_trace()
 
-
         with torch.no_grad():
             dummy_output = model(dummy_input, dummy_target)
 

@@ -57,8 +57,6 @@ if __name__ == "__main__":
     temp_model = temp_model.to(device)
     temp_model.eval()
 
-
-
     # print(model)
     # print("Torch building ...")
     # script_model = torch.jit.script(model)
@@ -67,8 +65,7 @@ if __name__ == "__main__":
     image_filenames = sorted(glob.glob(args.input))
     progress_bar = tqdm(total=len(image_filenames))
 
-
-    # Get template from first frame 
+    # Get template from first frame
     image = Image.open(image_filenames[0]).convert("RGB")
     input_tensor = totensor(image).unsqueeze(0).to(device)
     input_tensor = input_tensor * 255.0
