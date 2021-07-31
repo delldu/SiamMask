@@ -49,6 +49,8 @@ if __name__ == "__main__":
     model = get_model(args.checkpoint)
     device = model_device()
     model = model.to(device)
+    # xxxx8888
+    model.anchor = model.anchor.to(device)
     model.eval()
 
     temp_model = SiameseTemplate()
@@ -91,13 +93,8 @@ if __name__ == "__main__":
         with torch.no_grad():
             mask, target = model(input_tensor, template, target)
 
-        print("mask.size: ", mask.size(), "target:", target)
-        if input_tensor.size(2) == mask.size(0) and input_tensor.size(3) == mask.size(
-            1
-        ):
-            input_tensor[:, 0, :, :] = (mask > 0) * 255.0 + (mask == 0) * input_tensor[
-                :, 0, :, :
-            ]
+        mask = mask * 255
+        input_tensor[:, 0, :, :] = torch.where(mask > 0, mask, input_tensor[:, 0, :, :])
 
         input_tensor = input_tensor / 255.0
         input_tensor = input_tensor.squeeze(0).cpu()

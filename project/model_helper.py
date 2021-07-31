@@ -145,11 +145,11 @@ class SubWindow(nn.Module):
         return F.interpolate(patch, size=(self.size, self.size), mode="nearest")
 
 
-class AnchorBgboxFunction(Function):
+class AnchorBigboxFunction(Function):
     @staticmethod
     def forward(ctx, image, target, anchor):
         ctx.save_for_backward(image, target, anchor)        
-        output = siamese_cpp.anchor_bgbox(image, target, anchor)
+        output = siamese_cpp.anchor_bigbox(image, target, anchor)
         return output
 
     @staticmethod
@@ -165,16 +165,15 @@ class AnchorBgboxFunction(Function):
 
     @staticmethod
     def symbolic(g, image, target, anchor):
-        return g.op("siamese::anchor_bgbox", image, target, anchor) 
+        return g.op("siamese::anchor_bigbox", image, target, anchor) 
 
 
-class AnchorBgbox(nn.Module):
+class AnchorBigbox(nn.Module):
     def __init__(self):
-        super(AnchorBgbox, self).__init__()
+        super(AnchorBigbox, self).__init__()
 
     def forward(self, image, target, anchor):
-        # bgbox =  AnchorBgboxFunction.apply(image, target, anchor)
-        return AnchorBgboxFunction.apply(image, target, anchor)
+        return AnchorBigboxFunction.apply(image, target, anchor)
 
 
 class AffineThetaFunction(Function):
@@ -748,10 +747,8 @@ class SiameseTemplate(nn.Module):
 
 
 class SiameseTracker(nn.Module):
-    # xxxx8888
-    def __init__(self, device="cpu"):
+    def __init__(self):
         super(SiameseTracker, self).__init__()
-        self.device = device
         self.config = {
             "stride": 8,
             "ratios": [0.25, 0.5, 1, 2, 4],
@@ -762,7 +759,7 @@ class SiameseTracker(nn.Module):
         self.score_size = 25
         self.anchor = torch.from_numpy(
             generate_anchor(self.config, self.score_size)
-        ).to(device)
+        )
         # 'anchor':([[-96., -96., 104.,  32.],
         #        [-88., -96., 104.,  32.],
         #        [-80., -96., 104.,  32.],
@@ -788,7 +785,7 @@ class SiameseTracker(nn.Module):
         self.affine_theta = AffineTheta();
         self.best_anchor = BestAnchor();
         self.subwindow = SubWindow(self.instance_size)
-        self.anchor_bgbox = AnchorBgbox()
+        self.anchor_bigbox = AnchorBigbox()
 
     def reset_mode(self, is_training=False):
         if is_training:
@@ -813,8 +810,6 @@ class SiameseTracker(nn.Module):
         output = F.grid_sample(
             mask, grid, mode="bilinear", align_corners=True, padding_mode="zeros"
         )
-        output = output.squeeze(0).squeeze(0)
-
         return output
 
     def convert_score(self, score):
@@ -830,6 +825,7 @@ class SiameseTracker(nn.Module):
 
         # delta format: delta_x, delta_y, delta_w, delta_h ?
         # anchor format: (cc, rc, w, h)
+        # self.anchor = self.anchor.to(delta.device)
         delta[0, :] = delta[0, :] * self.anchor[:, 2] + self.anchor[:, 0]  # x
         delta[1, :] = delta[1, :] * self.anchor[:, 3] + self.anchor[:, 1]  # y
         delta[2, :] = torch.exp(delta[2, :]) * self.anchor[:, 2]  # w
@@ -840,8 +836,11 @@ class SiameseTracker(nn.Module):
         """image: Tensor (1x3xHxW format, range: 0, 255, uint8
            template --[1, 256, 7, 7]
         """
-        x_crop = self.subwindow(image, target)  # x_crop.size -- [1, 3, 255, 255]
+        big_target = torch.cat((target[0:2], 2.0*target[2:4]), dim=0)
+
+        x_crop = self.subwindow(image, big_target)  # x_crop.size -- [1, 3, 255, 255]
         full_feature, search_feature = self.features(x_crop)
+        # pdb.set_trace()
 
         rpn_score, rpn_bbox = self.rpn_model(template, search_feature)
         score = self.convert_score(rpn_score)
@@ -854,17 +853,16 @@ class SiameseTracker(nn.Module):
         # Track refine ...
         anchor_mask = self.refine_model(full_feature, corr_feature, anchor)
         anchor_mask = anchor_mask.sigmoid().view(1, 1, self.template_size, self.template_size)
-        anchor_bbox = self.anchor_bgbox(image, target, anchor)
+        anchor_bbox = self.anchor_bigbox(image, big_target, anchor)
 
         final_mask = self.refine_mask(image, anchor_mask, anchor_bbox)
-
         # anchor_mask.shape -- (1, 1, 127, 127)
         # final_mask.shape -- (480, 854)
-        target_mask = final_mask > self.segment_threshold
+        target_mask = (final_mask > self.segment_threshold).type_as(image)
 
         # Update target
         new_target = anchor[2:6]
-        new_target = new_target.clamp(0, min(image.size(2), image.size(3)))
+        new_target = new_target.clamp(0, max(image.size(2), image.size(3)))
 
         return target_mask, new_target
 

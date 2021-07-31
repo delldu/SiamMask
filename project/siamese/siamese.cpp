@@ -16,7 +16,8 @@
 #define INSTANCE_SIZE 255
 
 namespace F = torch::nn::functional;
-#define CheckPoint(fmt, arg...) printf("# CheckPoint: %d(%s): " fmt "\n", (int)__LINE__, __FILE__, ##arg)
+#define CheckPoint(fmt, arg...)                                                \
+  printf("# CheckPoint: %d(%s): " fmt "\n", (int)__LINE__, __FILE__, ##arg)
 
 float get_scale_size(float h, float w) {
   double pad = (w + h) * 0.5;
@@ -42,7 +43,7 @@ std::vector<int64_t> get_range_pad(int64_t y, int64_t d, int64_t max) {
   int64_t pad1 = (-y1 > 0) ? -y1 : 0;
   int64_t pad2 = (y2 - max + 1 > 0) ? y2 - max + 1 : 0;
   y1 += pad1;
-  y2 += pad2;
+  y2 += pad1;
 
   result.push_back(y1);
   result.push_back(y2);
@@ -57,40 +58,39 @@ torch::Tensor sub_window(const torch::Tensor &image,
   // 1. image.dim() == 4 && kNearest mode
   // 2. target target.dim() == 1 with 4 elements, rc, cc, h, w
 
-  float *data = target.data_ptr<float>();
-  int64_t rc = (int64_t)data[0];
-  int64_t cc = (int64_t)data[1];
-  int64_t e = (int64_t)get_scale_size(data[2], data[3]); // h, w
+  float *target_data = target.data_ptr<float>();
+  int64_t rc = (int64_t)target_data[0];
+  int64_t cc = (int64_t)target_data[1];
+  int64_t e = (int64_t)get_scale_size(target_data[2], target_data[3]); // h, w
 
   int64_t height = (int64_t)image.size(2);
-  int64_t width = (int64_t)image.size(2);
+  int64_t width = (int64_t)image.size(3);
 
   // y1, y2, pad1, pad2
   std::vector<int64_t> top_bottom_pad = get_range_pad(rc, e, height);
   std::vector<int64_t> left_right_pad = get_range_pad(cc, e, width);
 
   // Padding, F.pad(image, (left_pad, right_pad, top_pad, bottom_pad))
+  // ==> mode='constant', value=0
   std::vector<int64_t> padding;
   padding.push_back(left_right_pad.at(2)); // left
   padding.push_back(left_right_pad.at(3)); // right
   padding.push_back(top_bottom_pad.at(2)); // top
   padding.push_back(top_bottom_pad.at(3)); // bottom
   torch::Tensor pad_data =
-      F::pad(image, F::PadFuncOptions(padding).mode(torch::kReplicate));
+      F::pad(image, F::PadFuncOptions(padding).mode(torch::kConstant));
 
   // Slice, pad_data[:, :, y1 : y2 + 1, x1 : x2 + 1]
   int64_t y1 = top_bottom_pad.at(0);
   int64_t y2 = top_bottom_pad.at(1);
   int64_t x1 = left_right_pad.at(0);
   int64_t x2 = left_right_pad.at(1);
-  torch::Tensor patch = pad_data.slice(2, y1, y2 + 1).slice(3, x1, x2 + 1);
 
-  return patch;
+  return pad_data.slice(2, y1, y2 + 1).slice(3, x1, x2 + 1);
 }
-
-torch::Tensor anchor_bgbox(const torch::Tensor &image,
-                           const torch::Tensor &target,
-                           const torch::Tensor &anchor) {
+torch::Tensor anchor_bigbox(const torch::Tensor &image,
+                            const torch::Tensor &target,
+                            const torch::Tensor &anchor) {
   float image_height = (float)image.size(2);
   float image_width = (float)image.size(3);
 
@@ -105,17 +105,17 @@ torch::Tensor anchor_bgbox(const torch::Tensor &image,
   float anchor_dc =
       (anchor_data[1] - 4.0) * 8.0 / INSTANCE_SIZE; // delta col, ratio
 
-  float rc = target_rc / target_e + anchor_dr -
-             0.5; // 0.5 move center from [0, 1.0] --> [-0.5, 0.5]
+  // 0.5 move center from [0, 1.0] --> [-0.5, 0.5]
+  float rc = target_rc / target_e + anchor_dr - 0.5;
   float cc = target_cc / target_e + anchor_dc - 0.5;
 
   torch::Tensor bgbox = torch::zeros({4}, torch::dtype(torch::kFloat32));
   float *bgbox_data = bgbox.data_ptr<float>();
 
-  bgbox_data[0] = -cc * INSTANCE_SIZE;          // x
-  bgbox_data[1] = -rc * INSTANCE_SIZE;          // y
-  bgbox_data[2] = image_width * INSTANCE_SIZE;  // w
-  bgbox_data[3] = image_height * INSTANCE_SIZE; // h
+  bgbox_data[0] = -cc * INSTANCE_SIZE;                     // x
+  bgbox_data[1] = -rc * INSTANCE_SIZE;                     // y
+  bgbox_data[2] = image_width / target_e * INSTANCE_SIZE;  // w
+  bgbox_data[3] = image_height / target_e * INSTANCE_SIZE; // h
 
   return bgbox;
 }
@@ -162,8 +162,8 @@ torch::Tensor best_anchor(const torch::Tensor &score, const torch::Tensor &bbox,
    *    w --- w1, w2, ...
    *    h --- h1, h2, ...
    */
-  torch::Tensor bbox_h = bbox.slice(0 /*dim*/, 3, 4); // bbox[3, :]
-  torch::Tensor bbox_w = bbox.slice(0 /*dim*/, 2, 3); // bbox[2, :]
+  torch::Tensor bbox_h = bbox.slice(0, 3, 4); // bbox[3, :]
+  torch::Tensor bbox_w = bbox.slice(0, 2, 3); // bbox[2, :]
 
   float *target_data = target.data_ptr<float>();
   float target_r = target_data[2] / target_data[3];
@@ -201,8 +201,10 @@ torch::Tensor best_anchor(const torch::Tensor &score, const torch::Tensor &bbox,
 
   float new_target_rc = target_data[0] + scale_best_bbox_data[1]; // rc
   float new_target_cc = target_data[1] + scale_best_bbox_data[0]; // cc
-  float new_target_h = target_data[2] * (1.0 - best_lr) + scale_best_bbox_data[3] * best_lr; // h
-  float new_target_w = target_data[3] * (1.0 - best_lr) + scale_best_bbox_data[2] * best_lr; // w
+  float new_target_h =
+      target_data[2] * (1.0 - best_lr) + scale_best_bbox_data[3] * best_lr; // h
+  float new_target_w =
+      target_data[3] * (1.0 - best_lr) + scale_best_bbox_data[2] * best_lr; // w
   if (new_target_h < 10)
     new_target_h = 10;
   if (new_target_w < 10)
@@ -249,16 +251,15 @@ anchor_patches(const std::vector<torch::Tensor> &full_feature,
                          .slice(3 /*dim*/, 1 * anchor_c, 1 * anchor_c + 15);
 
   // p3 = corr_feature[:, :, anchor_r, anchor_c].view(-1, 256, 1, 1)
-  torch::Tensor p3 =
-      corr_feature.slice(2 /*dim*/, anchor_r, anchor_r + 1)
-          .slice(3 /*dim*/, anchor_c, anchor_c + 1);
+  torch::Tensor p3 = corr_feature.slice(2 /*dim*/, anchor_r, anchor_r + 1)
+                         .slice(3 /*dim*/, anchor_c, anchor_c + 1);
 
   return {p0, p1, p2, p3};
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("sub_window", sub_window, "Subwindow Function");
-  m.def("anchor_bgbox", anchor_bgbox, "Get Anchor Background Box");
+  m.def("anchor_bigbox", anchor_bigbox, "Get Anchor Background Box");
   m.def("affine_theta", affine_theta, "Get Affine Theta");
   m.def("best_anchor", best_anchor, "Find Best Anchor");
   m.def("anchor_patches", anchor_patches, "Get Anchor's Pyramid Features");

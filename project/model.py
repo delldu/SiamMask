@@ -49,7 +49,7 @@ def get_model(checkpoint):
 
     model_setenv()
     device = model_device()
-    model = SiameseTracker(device)
+    model = SiameseTracker()
     model_load(model, checkpoint)
     model.to(device)
 
