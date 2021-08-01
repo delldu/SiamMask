@@ -115,19 +115,19 @@ def conv2d_dw_group(x, kernel):
 class SubWindowFunction(Function):
     @staticmethod
     def forward(ctx, input, target):
-        ctx.save_for_backward(input, target)
+        # ctx.save_for_backward(input, target)
         output = siamese_cpp.sub_window(input, target)
         return output
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        input, target = ctx.saved_tensors
+    # @staticmethod
+    # def backward(ctx, grad_output):
+    #     input, target = ctx.saved_tensors
 
-        # Set gradient as 1.0
-        grad_input = torch.ones_like(input)
-        grad_target = torch.ones_like(target)
+    #     # Set gradient as 1.0
+    #     grad_input = torch.ones_like(input)
+    #     grad_target = torch.ones_like(target)
 
-        return (grad_input, grad_target)
+    #     return (grad_input, grad_target)
 
     @staticmethod
     def symbolic(g, input, target):
@@ -148,20 +148,20 @@ class SubWindow(nn.Module):
 class AnchorBboxFunction(Function):
     @staticmethod
     def forward(ctx, image, target, anchor):
-        ctx.save_for_backward(image, target, anchor)
+        # ctx.save_for_backward(image, target, anchor)
         output = siamese_cpp.anchor_bbox(image, target, anchor)
         return output
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        image, target, anchor = ctx.saved_tensors
+    # @staticmethod
+    # def backward(ctx, grad_output):
+    #     image, target, anchor = ctx.saved_tensors
 
-        # Set gradient as 1.0
-        grad_image = torch.ones_like(image)
-        grad_target = torch.ones_like(target)
-        grad_anchor = torch.ones_like(anchor)
+    #     # Set gradient as 1.0
+    #     grad_image = torch.ones_like(image)
+    #     grad_target = torch.ones_like(target)
+    #     grad_anchor = torch.ones_like(anchor)
 
-        return (grad_image, grad_target, grad_anchor)
+    #     return (grad_image, grad_target, grad_anchor)
 
     @staticmethod
     def symbolic(g, image, target, anchor):
@@ -179,19 +179,19 @@ class AnchorBbox(nn.Module):
 class AffineThetaFunction(Function):
     @staticmethod
     def forward(ctx, mask, bbox):
-        ctx.save_for_backward(mask, bbox)
+        # ctx.save_for_backward(mask, bbox)
         output = siamese_cpp.affine_theta(mask, bbox)
         return output
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        mask, bbox = ctx.saved_tensors
+    # @staticmethod
+    # def backward(ctx, grad_output):
+    #     mask, bbox = ctx.saved_tensors
 
-        # Set gradient as 1.0
-        grad_mask = torch.ones_like(mask)
-        grad_bbox = torch.ones_like(bbox)
+    #     # Set gradient as 1.0
+    #     grad_mask = torch.ones_like(mask)
+    #     grad_bbox = torch.ones_like(bbox)
 
-        return (grad_mask, grad_bbox)
+    #     return (grad_mask, grad_bbox)
 
     @staticmethod
     def symbolic(g, mask, bbox):
@@ -211,19 +211,19 @@ class AffineTheta(nn.Module):
 class BestAnchorFunction(Function):
     @staticmethod
     def forward(ctx, score, bbox, target):
-        ctx.save_for_backward(score, bbox, target)
+        # ctx.save_for_backward(score, bbox, target)
         return siamese_cpp.best_anchor(score, bbox, target)
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        score, bbox, target = ctx.saved_tensors
+    # @staticmethod
+    # def backward(ctx, grad_output):
+    #     score, bbox, target = ctx.saved_tensors
 
-        # Set gradient as 1.0
-        grad_score = torch.ones_like(score)
-        grad_bbox = torch.ones_like(bbox)
-        grad_target = torch.ones_like(target)
+    #     # Set gradient as 1.0
+    #     grad_score = torch.ones_like(score)
+    #     grad_bbox = torch.ones_like(bbox)
+    #     grad_target = torch.ones_like(target)
 
-        return (grad_score, grad_bbox, grad_target)
+    #     return (grad_score, grad_bbox, grad_target)
 
     @staticmethod
     def symbolic(g, score, bbox, target):
@@ -725,8 +725,6 @@ class Refine(nn.Module):
 
     # xxxx8888
     def forward(self, f: List[Tensor], corr_feature, anchor):
-        # f -- full_feature, type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
-        # tuple, 4, [1, 64, 125, 125], [1, 256, 63, 63],[1, 512, 31, 31], [1, 1024, 31, 31]
         # corr_feature.size() -- [1, 256, 25, 25]
 
         # x0 = torch.randn(1, 64, 125, 125).to(corr_feature.device)
