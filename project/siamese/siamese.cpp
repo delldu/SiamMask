@@ -91,7 +91,7 @@ torch::Tensor sub_window(const torch::Tensor &image,
 
 torch::Tensor anchor_bbox(const torch::Tensor &image,
                           const torch::Tensor &target,
-                          const torch::Tensor &anchor) {
+                          torch::Tensor &anchor) {
   float image_height = (float)image.size(2);
   float image_width = (float)image.size(3);
 
@@ -118,6 +118,20 @@ torch::Tensor anchor_bbox(const torch::Tensor &image,
   bbox_data[2] = image_width / target_e * INSTANCE_SIZE;  // w
   bbox_data[3] = image_height / target_e * INSTANCE_SIZE; // h
 
+  // Clamp new target
+  if (anchor_data[2] > (float)image.size(2)) {
+    anchor_data[2] = (float)image.size(2);
+  }
+  if (anchor_data[4] > (float)image.size(2)) {
+    anchor_data[4] = (float)image.size(2);
+  }
+  if (anchor_data[3] > (float)image.size(3)) {
+    anchor_data[3] = (float)image.size(3);
+  }
+  if (anchor_data[5] > (float)image.size(3)) {
+    anchor_data[5] = (float)image.size(3);
+  }
+  
   return bbox;
 }
 

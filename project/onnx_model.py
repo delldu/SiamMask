@@ -151,6 +151,7 @@ if __name__ == "__main__":
         print("Checking model ...")
         onnx_model = onnx.load(onnx_file_name)
         onnx.checker.check_model(onnx_model)
+
         # https://github.com/onnx/optimizer
 
         # 4. Visual model
@@ -205,3 +206,5 @@ if __name__ == "__main__":
 
     if args.verify:
         verify_onnx()
+
+    print("OK ...")
