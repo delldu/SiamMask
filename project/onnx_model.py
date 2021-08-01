@@ -93,8 +93,9 @@ if __name__ == "__main__":
     model_setenv()
     device = model_device()
 
-    dummy_input = torch.randn(1, 3, 512, 512).to(device)
-    dummy_target = torch.Tensor([100, 100, 200, 200]).to(device)
+    dummy_input = torch.randn(1, 3, 1024, 1024).to(device)
+    dummy_template = torch.randn(1, 256, 7, 7).to(device)
+    dummy_target = torch.Tensor([100.0, 100.0, 100.0, 100.0])
 
     onnx_file_name = "{}/image_siammask.onnx".format(args.output)
 
@@ -103,6 +104,8 @@ if __name__ == "__main__":
 
         # 1. Create and load model.
         model = get_model("models/image_siammask.pth")
+        model = model.to(device)
+        model.anchor = model.anchor.to(device)
         model.eval()
 
         # print("Building traced model ...")
@@ -117,13 +120,15 @@ if __name__ == "__main__":
         # pdb.set_trace()
 
         with torch.no_grad():
-            dummy_output = model(dummy_input, dummy_target)
+            dummy_output, dummy_newtarget = model(
+                dummy_input, dummy_template, dummy_target
+            )
 
         # 2. Model export
         print("Exporting onnx model to {}...".format(onnx_file_name))
 
-        input_names = ["input", "target"]
-        output_names = ["output"]
+        input_names = ["input", "template", "target"]
+        output_names = ["output", "newtarget"]
         dynamic_axes = {
             "input": {2: "height", 3: "width"},
             "output": {2: "height", 3: "width"},
@@ -131,7 +136,7 @@ if __name__ == "__main__":
 
         torch.onnx.export(
             model,
-            (dummy_input, dummy_target),
+            (dummy_input, dummy_template, dummy_target),
             onnx_file_name,
             input_names=input_names,
             output_names=output_names,
@@ -140,7 +145,6 @@ if __name__ == "__main__":
             keep_initializers_as_inputs=False,
             dynamic_axes=dynamic_axes,
             export_params=True,
-            example_outputs=dummy_output,
         )
 
         # 3. Optimize model
@@ -168,11 +172,14 @@ if __name__ == "__main__":
             )
 
         with torch.no_grad():
-            torch_output = model(dummy_input, dummy_target)
+            torch_output, dummy_newtarget = model(
+                dummy_input, dummy_template, dummy_target
+            )
 
         onnxruntime_inputs = {
             onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input),
-            onnxruntime_engine.get_inputs()[1].name: to_numpy(dummy_target),
+            onnxruntime_engine.get_inputs()[1].name: to_numpy(dummy_template),
+            onnxruntime_engine.get_inputs()[2].name: to_numpy(dummy_target),
         }
         onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
 

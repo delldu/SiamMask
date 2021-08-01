@@ -226,36 +226,43 @@ torch::Tensor best_anchor(const torch::Tensor &score, const torch::Tensor &bbox,
   return anchor;
 }
 
-std::vector<torch::Tensor>
-anchor_patches(const std::vector<torch::Tensor> &full_feature,
-               const torch::Tensor &corr_feature, const torch::Tensor &anchor) {
+torch::Tensor anchor_patch(const std::vector<torch::Tensor> &full_feature,
+                           const torch::Tensor &corr_feature,
+                           const torch::Tensor &anchor, int no) {
   float *anchor_data = anchor.data_ptr<float>();
   int64_t anchor_r = (int64_t)anchor_data[0];
   int64_t anchor_c = (int64_t)anchor_data[1];
 
-  torch::Tensor p0_pad =
-      F::pad(full_feature.at(0),
-             F::PadFuncOptions({16, 16, 16, 16}).mode(torch::kReplicate));
-  torch::Tensor p0 = p0_pad.slice(2 /*dim*/, 4 * anchor_r, 4 * anchor_r + 61)
-                         .slice(3 /*dim*/, 4 * anchor_c, 4 * anchor_c + 61);
+  if (no == 0) {
+    torch::Tensor p0_pad =
+        F::pad(full_feature.at(0),
+               F::PadFuncOptions({16, 16, 16, 16}).mode(torch::kReplicate));
+    torch::Tensor p0 = p0_pad.slice(2 /*dim*/, 4 * anchor_r, 4 * anchor_r + 61)
+                           .slice(3 /*dim*/, 4 * anchor_c, 4 * anchor_c + 61);
+    return p0;
+  }
 
-  torch::Tensor p1_pad =
-      F::pad(full_feature.at(1),
-             F::PadFuncOptions({8, 8, 8, 8}).mode(torch::kReplicate));
-  torch::Tensor p1 = p1_pad.slice(2 /*dim*/, 2 * anchor_r, 2 * anchor_r + 31)
-                         .slice(3 /*dim*/, 2 * anchor_c, 2 * anchor_c + 31);
+  if (no == 1) {
+    torch::Tensor p1_pad = F::pad(
+        full_feature.at(1), F::PadFuncOptions({8, 8, 8, 8}).mode(torch::kReplicate));
+    torch::Tensor p1 = p1_pad.slice(2 /*dim*/, 2 * anchor_r, 2 * anchor_r + 31)
+                           .slice(3 /*dim*/, 2 * anchor_c, 2 * anchor_c + 31);
+    return p1;
+  }
 
-  torch::Tensor p2_pad =
-      F::pad(full_feature.at(2),
-             F::PadFuncOptions({4, 4, 4, 4}).mode(torch::kReplicate));
-  torch::Tensor p2 = p2_pad.slice(2 /*dim*/, 1 * anchor_r, 1 * anchor_r + 15)
-                         .slice(3 /*dim*/, 1 * anchor_c, 1 * anchor_c + 15);
+  if (no == 2) {
+    torch::Tensor p2_pad = F::pad(
+        full_feature.at(2), F::PadFuncOptions({4, 4, 4, 4}).mode(torch::kReplicate));
+    torch::Tensor p2 = p2_pad.slice(2 /*dim*/, 1 * anchor_r, 1 * anchor_r + 15)
+                           .slice(3 /*dim*/, 1 * anchor_c, 1 * anchor_c + 15);
+    return p2;
+  }
 
-  // p3 = corr_feature[:, :, anchor_r, anchor_c].view(-1, 256, 1, 1)
+  // no == 3
   torch::Tensor p3 = corr_feature.slice(2 /*dim*/, anchor_r, anchor_r + 1)
                          .slice(3 /*dim*/, anchor_c, anchor_c + 1);
 
-  return {p0, p1, p2, p3};
+  return p3;
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
@@ -263,5 +270,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("anchor_bbox", anchor_bbox, "Get Anchor Bunding Box");
   m.def("affine_theta", affine_theta, "Get Affine Theta");
   m.def("best_anchor", best_anchor, "Find Best Anchor");
-  m.def("anchor_patches", anchor_patches, "Get Anchor's Pyramid Features");
+  m.def("anchor_patch", anchor_patch, "Get Anchor's Pyramid Features");
 }

@@ -26,12 +26,12 @@ from torch.autograd import Function
 # Our module!
 import siamese_cpp
 
+
 def to_numpy(tensor):
     return (
-        tensor.detach().cpu().numpy()
-        if tensor.requires_grad
-        else tensor.cpu().numpy()
+        tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
     )
+
 
 def onnx_load(onnx_file):
     session_options = onnxruntime.SessionOptions()
@@ -70,7 +70,7 @@ def onnx_forward(onnx_model, input):
 class SubWindowFunction(Function):
     @staticmethod
     def forward(ctx, input, target):
-        ctx.save_for_backward(input, target)        
+        ctx.save_for_backward(input, target)
         output = siamese_cpp.sub_window(input, target)
         return output
 
@@ -86,7 +86,7 @@ class SubWindowFunction(Function):
 
     @staticmethod
     def symbolic(g, input, target):
-        return g.op("siamese::sub_window", input, target) 
+        return g.op("siamese::sub_window", input, target)
 
 
 class SubWindow(nn.Module):
@@ -94,7 +94,7 @@ class SubWindow(nn.Module):
     #     super(SubWindow, self).__init__()
 
     def forward(self, input, target):
-        output =  SubWindowFunction.apply(input, target)
+        output = SubWindowFunction.apply(input, target)
         return output
 
 
@@ -139,7 +139,6 @@ if __name__ == "__main__":
         input_names = ["input", "target"]
         output_names = ["output"]
 
-
         torch.onnx.export(
             model,
             (dummy_input, dummy_target),
@@ -160,7 +159,6 @@ if __name__ == "__main__":
 
         # 4. Visual model
         # python -c "import netron; netron.start('/tmp/test.onnx')"
-
 
     def verify_onnx():
         """Verify onnx model."""
