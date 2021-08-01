@@ -258,7 +258,7 @@ class AnchorPatchFunction(Function):
     #     return (grad_full_feature, grad_corr_feature, grad_anchor)
 
     @staticmethod
-    def symbolic(g, full_feature, corr_feature, anchor, no):
+    def symbolic(g, full_feature, corr_feature, anchor, no=0):
         return g.op("siamese::anchor_patch", full_feature, corr_feature, anchor, no)
 
 
@@ -269,6 +269,78 @@ class AnchorPatch(nn.Module):
     def forward(self, full_feature, corr_feature, anchor, no):
         # patch = AnchorPatchFunction.apply(full_feature, corr_feature, anchor, no)
         return AnchorPatchFunction.apply(full_feature, corr_feature, anchor, no)
+
+
+class AnchorPatchP0Function(Function):
+    @staticmethod
+    def forward(ctx, full_feature, corr_feature, anchor):
+        return siamese_cpp.anchor_patch_p0(full_feature, corr_feature, anchor)
+
+    @staticmethod
+    def symbolic(g, full_feature, corr_feature, anchor):
+        return g.op("siamese::anchor_patch_p0", full_feature, corr_feature, anchor)
+
+
+class AnchorPatchP0(nn.Module):
+    def __init__(self):
+        super(AnchorPatchP0, self).__init__()
+
+    def forward(self, full_feature, corr_feature, anchor):
+        return AnchorPatchP0Function.apply(full_feature, corr_feature, anchor)
+
+
+class AnchorPatchP1Function(Function):
+    @staticmethod
+    def forward(ctx, full_feature, corr_feature, anchor):
+        return siamese_cpp.anchor_patch_p1(full_feature, corr_feature, anchor)
+
+    @staticmethod
+    def symbolic(g, full_feature, corr_feature, anchor):
+        return g.op("siamese::anchor_patch_p1", full_feature, corr_feature, anchor)
+
+
+class AnchorPatchP1(nn.Module):
+    def __init__(self):
+        super(AnchorPatchP1, self).__init__()
+
+    def forward(self, full_feature, corr_feature, anchor):
+        return AnchorPatchP1Function.apply(full_feature, corr_feature, anchor)
+
+
+class AnchorPatchP2Function(Function):
+    @staticmethod
+    def forward(ctx, full_feature, corr_feature, anchor):
+        return siamese_cpp.anchor_patch_p2(full_feature, corr_feature, anchor)
+
+    @staticmethod
+    def symbolic(g, full_feature, corr_feature, anchor):
+        return g.op("siamese::anchor_patch_p2", full_feature, corr_feature, anchor)
+
+
+class AnchorPatchP2(nn.Module):
+    def __init__(self):
+        super(AnchorPatchP2, self).__init__()
+
+    def forward(self, full_feature, corr_feature, anchor):
+        return AnchorPatchP2Function.apply(full_feature, corr_feature, anchor)
+
+
+class AnchorPatchP3Function(Function):
+    @staticmethod
+    def forward(ctx, full_feature, corr_feature, anchor):
+        return siamese_cpp.anchor_patch_p3(full_feature, corr_feature, anchor)
+
+    @staticmethod
+    def symbolic(g, full_feature, corr_feature, anchor):
+        return g.op("siamese::anchor_patch_p3", full_feature, corr_feature, anchor)
+
+
+class AnchorPatchP3(nn.Module):
+    def __init__(self):
+        super(AnchorPatchP3, self).__init__()
+
+    def forward(self, full_feature, corr_feature, anchor):
+        return AnchorPatchP3Function.apply(full_feature, corr_feature, anchor)
 
 
 class DepthCorr(nn.Module):
@@ -645,17 +717,29 @@ class Refine(nn.Module):
                 if isinstance(l, nn.Conv2d):
                     nn.init.kaiming_uniform_(l.weight, a=1)
 
-        self.anchor_patch = AnchorPatch()
+        # self.anchor_patch = AnchorPatch()
+        self.anchor_patch_p0 = AnchorPatchP0()
+        self.anchor_patch_p1 = AnchorPatchP1()
+        self.anchor_patch_p2 = AnchorPatchP2()
+        self.anchor_patch_p3 = AnchorPatchP3()
 
+    # xxxx8888
     def forward(self, f: List[Tensor], corr_feature, anchor):
         # f -- full_feature, type(f), len(f), f[0].size(), f[1].size(), f[2].size(), f[3].size()
         # tuple, 4, [1, 64, 125, 125], [1, 256, 63, 63],[1, 512, 31, 31], [1, 1024, 31, 31]
         # corr_feature.size() -- [1, 256, 25, 25]
 
-        p0 = self.anchor_patch(f, corr_feature, anchor, 0)
-        p1 = self.anchor_patch(f, corr_feature, anchor, 1)
-        p2 = self.anchor_patch(f, corr_feature, anchor, 2)
-        p3 = self.anchor_patch(f, corr_feature, anchor, 3)
+        # x0 = torch.randn(1, 64, 125, 125).to(corr_feature.device)
+        p0 = self.anchor_patch_p0(f[0], corr_feature, anchor)
+
+        # x1 = torch.randn(1, 256, 63, 63).to(corr_feature.device)
+        p1 = self.anchor_patch_p1(f[1], corr_feature, anchor)
+
+        # x2 = torch.randn(1, 512, 31, 31).to(corr_feature.device)
+        p2 = self.anchor_patch_p2(f[2], corr_feature, anchor)
+
+        # x3 = torch.randn(1, 1024, 32, 31).to(corr_feature.device)
+        p3 = self.anchor_patch_p3(f[3], corr_feature, anchor)
         p3 = p3.view(-1, 256, 1, 1)
 
         out = self.deconv(p3)
@@ -852,6 +936,7 @@ class SiameseTracker(nn.Module):
 
         # Track refine ...
         anchor_mask = self.refine_model(full_feature, corr_feature, anchor)
+
         anchor_mask = anchor_mask.sigmoid().view(
             1, 1, self.template_size, self.template_size
         )
